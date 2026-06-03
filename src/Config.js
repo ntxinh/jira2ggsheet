@@ -1,0 +1,28 @@
+var CONFIG = {
+  SHEET_NAME: 'Issues',
+  KEY_COLUMN: 'C',
+  HEADER_ROWS: 1,
+  DELETE_MODE: 'delete',
+  PROJECT_KEY: 'ABC',
+  SECRET_TOKEN: 'long-random-string',
+
+  COLUMN_MAP: {
+    A: 'sprintId',
+    C: 'issueKey',
+    D: 'issueType',
+    E: 'priority',
+    F: 'description',
+    G: 'status',
+    L: 'createdDate',
+    P: 'storyPoints',
+    U: 'assignee',
+  },
+
+  CUSTOM_FIELDS: {
+    sprint: 'customfield_10020',
+    storyPoints: 'customfield_10016',
+  },
+
+  DATE_FORMAT: 'yyyy-MM-dd HH:mm',
+  TIMEZONE: 'Asia/Ho_Chi_Minh',
+};
