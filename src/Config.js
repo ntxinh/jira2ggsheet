@@ -19,8 +19,8 @@ var CONFIG = {
   },
 
   CUSTOM_FIELDS: {
-    sprint: 'customfield_10020',
-    storyPoints: 'customfield_10016',
+    sprint: 'customfield_10016',
+    storyPoints: 'customfield_10021',
   },
 
   DATE_FORMAT: 'yyyy-MM-dd HH:mm',
