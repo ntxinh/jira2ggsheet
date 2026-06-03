@@ -3,6 +3,28 @@ const { loadAppsScript } = require('./harness');
 
 const app = loadAppsScript({});
 
+function sampleIssue() {
+  const fields = {
+    project: { key: 'ABC' },
+    issuetype: { name: 'Story' },
+    priority: { name: 'High' },
+    status: { name: 'In Progress' },
+    assignee: { displayName: 'Jane Doe' },
+    created: '2026-06-03T10:30:00.000+0700',
+    description: {
+      type: 'doc',
+      version: 1,
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'World' }] },
+      ],
+    },
+  };
+  fields[app.CONFIG.CUSTOM_FIELDS.storyPoints] = 5;
+  fields[app.CONFIG.CUSTOM_FIELDS.sprint] = [{ id: 10, state: 'active', name: 'Sprint 10' }];
+  return { key: 'ABC-123', fields: fields };
+}
+
 module.exports = {
   'columnLetterToIndex converts letters'() {
     assert.strictEqual(app.columnLetterToIndex('A'), 1);
@@ -87,5 +109,37 @@ module.exports = {
     assert.strictEqual(app.formatJiraDate('', cfg), '');
     assert.strictEqual(app.formatJiraDate(null, cfg), '');
     assert.strictEqual(app.formatJiraDate('not-a-date', cfg), '');
+  },
+  'extractField extracts every mapped field from a full issue'() {
+    const issue = sampleIssue();
+    assert.strictEqual(app.extractField('issueKey', issue, app.CONFIG), 'ABC-123');
+    assert.strictEqual(app.extractField('issueType', issue, app.CONFIG), 'Story');
+    assert.strictEqual(app.extractField('priority', issue, app.CONFIG), 'High');
+    assert.strictEqual(app.extractField('status', issue, app.CONFIG), 'In Progress');
+    assert.strictEqual(app.extractField('assignee', issue, app.CONFIG), 'Jane Doe');
+    assert.strictEqual(app.extractField('createdDate', issue, app.CONFIG), '2026-06-03 10:30');
+    assert.strictEqual(app.extractField('storyPoints', issue, app.CONFIG), 5);
+    assert.strictEqual(app.extractField('sprintId', issue, app.CONFIG), 10);
+    assert.strictEqual(app.extractField('description', issue, app.CONFIG), 'Hello\nWorld');
+  },
+  'extractField returns empty string for missing optional fields'() {
+    const issue = sampleIssue();
+    issue.fields.assignee = null;
+    issue.fields.priority = null;
+    issue.fields[app.CONFIG.CUSTOM_FIELDS.storyPoints] = null;
+    issue.fields[app.CONFIG.CUSTOM_FIELDS.sprint] = null;
+    issue.fields.description = null;
+    assert.strictEqual(app.extractField('assignee', issue, app.CONFIG), '');
+    assert.strictEqual(app.extractField('priority', issue, app.CONFIG), '');
+    assert.strictEqual(app.extractField('storyPoints', issue, app.CONFIG), '');
+    assert.strictEqual(app.extractField('sprintId', issue, app.CONFIG), '');
+    assert.strictEqual(app.extractField('description', issue, app.CONFIG), '');
+  },
+  'extractField returns empty string for unknown extractor name'() {
+    assert.strictEqual(app.extractField('nope', sampleIssue(), app.CONFIG), '');
+  },
+  'extractField returns empty string when an extractor throws'() {
+    // fields: null makes every fields.* access throw
+    assert.strictEqual(app.extractField('issueType', { key: 'X-1', fields: null }, app.CONFIG), '');
   },
 };

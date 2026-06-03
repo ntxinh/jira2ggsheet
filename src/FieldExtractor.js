@@ -77,3 +77,48 @@ function formatJiraDate(isoString, config) {
   };
   return get('year') + '-' + get('month') + '-' + get('day') + ' ' + get('hour') + ':' + get('minute');
 }
+
+var EXTRACTORS = {
+  issueKey: function (issue) {
+    return issue.key;
+  },
+  issueType: function (issue) {
+    return issue.fields.issuetype && issue.fields.issuetype.name;
+  },
+  priority: function (issue) {
+    return issue.fields.priority && issue.fields.priority.name;
+  },
+  description: function (issue) {
+    return adfToPlainText(issue.fields.description);
+  },
+  status: function (issue) {
+    return issue.fields.status && issue.fields.status.name;
+  },
+  createdDate: function (issue, config) {
+    return formatJiraDate(issue.fields.created, config);
+  },
+  storyPoints: function (issue, config) {
+    return issue.fields[config.CUSTOM_FIELDS.storyPoints];
+  },
+  assignee: function (issue) {
+    return issue.fields.assignee && issue.fields.assignee.displayName;
+  },
+  sprintId: function (issue, config) {
+    return pickSprintId(issue.fields[config.CUSTOM_FIELDS.sprint]);
+  },
+};
+
+function extractField(name, issue, config) {
+  const fn = EXTRACTORS[name];
+  if (!fn) {
+    console.log('Unknown extractor in COLUMN_MAP: ' + name);
+    return '';
+  }
+  try {
+    const value = fn(issue, config);
+    return value == null ? '' : value;
+  } catch (err) {
+    console.log('Extractor "' + name + '" failed: ' + err);
+    return '';
+  }
+}
