@@ -72,9 +72,8 @@ function formatJiraDate(isoString, config) {
     hourCycle: 'h23',
   }).formatToParts(date);
   const get = function (type) {
-    return parts.find(function (p) {
-      return p.type === type;
-    }).value;
+    const part = parts.find(function (p) { return p.type === type; });
+    return part ? part.value : '';
   };
   return get('year') + '-' + get('month') + '-' + get('day') + ' ' + get('hour') + ':' + get('minute');
 }
