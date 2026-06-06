@@ -11,7 +11,7 @@ var CONFIG = {
     C: 'issueKey',
     D: 'issueType',
     E: 'priority',
-    F: 'description',
+    F: 'summary',
     G: 'status',
     L: 'createdDate',
     P: 'storyPoints',

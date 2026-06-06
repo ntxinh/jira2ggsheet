@@ -11,14 +11,7 @@ function sampleIssue() {
     status: { name: 'In Progress' },
     assignee: { displayName: 'Jane Doe' },
     created: '2026-06-03T10:30:00.000+0700',
-    description: {
-      type: 'doc',
-      version: 1,
-      content: [
-        { type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] },
-        { type: 'paragraph', content: [{ type: 'text', text: 'World' }] },
-      ],
-    },
+    summary: 'Hello World',
   };
   fields[app.CONFIG.CUSTOM_FIELDS.storyPoints] = 5;
   fields[app.CONFIG.CUSTOM_FIELDS.sprint] = [{ id: 10, state: 'active', name: 'Sprint 10' }];
@@ -36,44 +29,6 @@ module.exports = {
   'columnLetterToIndex rejects invalid input'() {
     assert.throws(() => app.columnLetterToIndex('1'));
     assert.throws(() => app.columnLetterToIndex(''));
-  },
-  'adfToPlainText handles null and plain strings'() {
-    assert.strictEqual(app.adfToPlainText(null), '');
-    assert.strictEqual(app.adfToPlainText(undefined), '');
-    assert.strictEqual(app.adfToPlainText('already text'), 'already text');
-  },
-  'adfToPlainText flattens ADF paragraphs with newlines'() {
-    const adf = {
-      type: 'doc',
-      version: 1,
-      content: [
-        { type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] },
-        { type: 'paragraph', content: [{ type: 'text', text: 'World' }] },
-      ],
-    };
-    assert.strictEqual(app.adfToPlainText(adf), 'Hello\nWorld');
-  },
-  'adfToPlainText handles hardBreak and nested lists'() {
-    const adf = {
-      type: 'doc',
-      content: [
-        {
-          type: 'paragraph',
-          content: [
-            { type: 'text', text: 'line1' },
-            { type: 'hardBreak' },
-            { type: 'text', text: 'line2' },
-          ],
-        },
-        {
-          type: 'bulletList',
-          content: [
-            { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'item1' }] }] },
-          ],
-        },
-      ],
-    };
-    assert.strictEqual(app.adfToPlainText(adf), 'line1\nline2\nitem1');
   },
   'pickSprintId picks the active sprint'() {
     const sprints = [
@@ -120,7 +75,7 @@ module.exports = {
     assert.strictEqual(app.extractField('createdDate', issue, app.CONFIG), '2026-06-03 10:30');
     assert.strictEqual(app.extractField('storyPoints', issue, app.CONFIG), 5);
     assert.strictEqual(app.extractField('sprintId', issue, app.CONFIG), 10);
-    assert.strictEqual(app.extractField('description', issue, app.CONFIG), 'Hello\nWorld');
+    assert.strictEqual(app.extractField('summary', issue, app.CONFIG), 'Hello World');
   },
   'extractField returns empty string for missing optional fields'() {
     const issue = sampleIssue();
@@ -128,12 +83,12 @@ module.exports = {
     issue.fields.priority = null;
     issue.fields[app.CONFIG.CUSTOM_FIELDS.storyPoints] = null;
     issue.fields[app.CONFIG.CUSTOM_FIELDS.sprint] = null;
-    issue.fields.description = null;
+    issue.fields.summary = null;
     assert.strictEqual(app.extractField('assignee', issue, app.CONFIG), '');
     assert.strictEqual(app.extractField('priority', issue, app.CONFIG), '');
     assert.strictEqual(app.extractField('storyPoints', issue, app.CONFIG), '');
     assert.strictEqual(app.extractField('sprintId', issue, app.CONFIG), '');
-    assert.strictEqual(app.extractField('description', issue, app.CONFIG), '');
+    assert.strictEqual(app.extractField('summary', issue, app.CONFIG), '');
   },
   'extractField returns empty string for unknown extractor name'() {
     assert.strictEqual(app.extractField('nope', sampleIssue(), app.CONFIG), '');

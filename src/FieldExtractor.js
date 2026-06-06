@@ -11,23 +11,6 @@ function columnLetterToIndex(letter) {
   return index;
 }
 
-var BLOCK_NODE_TYPES_ = ['paragraph', 'heading', 'listItem', 'codeBlock', 'blockquote'];
-
-function adfToPlainText(description) {
-  if (description == null) return '';
-  if (typeof description === 'string') return description;
-  return walkAdfNode_(description).replace(/\n+$/, '').replace(/\n{2,}/g, '\n');
-}
-
-function walkAdfNode_(node) {
-  if (node == null) return '';
-  if (node.type === 'text') return node.text || '';
-  if (node.type === 'hardBreak') return '\n';
-  let out = (node.content || []).map(walkAdfNode_).join('');
-  if (BLOCK_NODE_TYPES_.indexOf(node.type) !== -1) out += '\n';
-  return out;
-}
-
 function pickSprintId(sprintField) {
   if (!Array.isArray(sprintField) || sprintField.length === 0) return '';
   const sprints = sprintField.map(parseSprint_).filter(function (s) {
@@ -88,8 +71,8 @@ var EXTRACTORS = {
   priority: function (issue) {
     return issue.fields.priority && issue.fields.priority.name;
   },
-  description: function (issue) {
-    return adfToPlainText(issue.fields.description);
+  summary: function (issue) {
+    return issue.fields.summary;
   },
   status: function (issue) {
     return issue.fields.status && issue.fields.status.name;

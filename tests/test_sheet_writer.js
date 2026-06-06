@@ -4,7 +4,7 @@ const { FakeSheet, fakeSpreadsheetApp } = require('./fakes');
 
 // Columns A..U (21 columns). Mapped: A,C,D,E,F,G,L,P,U.
 const HEADER = [
-  'Sprint', 'Manual', 'Key', 'Type', 'Priority', 'Description', 'Status',
+  'Sprint', 'Manual', 'Key', 'Type', 'Priority', 'Title', 'Status',
   '', '', '', '', 'Created', '', '', '', 'Points', '', '', '', '', 'Assignee',
 ];
 
@@ -22,7 +22,7 @@ function sampleIssue(app, key) {
     status: { name: 'In Progress' },
     assignee: { displayName: 'Jane Doe' },
     created: '2026-06-03T10:30:00.000+0700',
-    description: 'plain description',
+    summary: 'plain title',
   };
   fields[app.CONFIG.CUSTOM_FIELDS.storyPoints] = 5;
   fields[app.CONFIG.CUSTOM_FIELDS.sprint] = [{ id: 10, state: 'active' }];
@@ -39,7 +39,7 @@ module.exports = {
     assert.strictEqual(row[2], 'ABC-123'); // C key
     assert.strictEqual(row[3], 'Story'); // D type
     assert.strictEqual(row[4], 'High'); // E priority
-    assert.strictEqual(row[5], 'plain description'); // F description
+    assert.strictEqual(row[5], 'plain title'); // F title (summary)
     assert.strictEqual(row[6], 'In Progress'); // G status
     assert.strictEqual(row[11], '2026-06-03 10:30'); // L created
     assert.strictEqual(row[15], 5); // P points
