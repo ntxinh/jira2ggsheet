@@ -15,7 +15,7 @@ keyed by issue key. Column ↔ field mapping is configurable (`src/Config.js`).
 | Path | What |
 |---|---|
 | `src/Config.js` | All settings: column map, custom field IDs, secret token, delete mode |
-| `src/FieldExtractor.js` | Webhook JSON → cell values (ADF descriptions, sprint arrays, dates) |
+| `src/FieldExtractor.js` | Webhook JSON → cell values (sprint arrays, dates) |
 | `src/SheetWriter.js` | Row upsert / delete (only file touching SpreadsheetApp) |
 | `src/WebApp.js` | `doPost` entry point: token auth, project filter, event routing |
 | `src/Test.js` | Tests runnable inside the Apps Script editor |

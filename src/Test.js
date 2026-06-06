@@ -19,7 +19,7 @@ function testExtractors_() {
   assertEqual_(extractField('assignee', issue, CONFIG), 'Jane Doe', 'assignee');
   assertEqual_(extractField('storyPoints', issue, CONFIG), 5, 'storyPoints');
   assertEqual_(extractField('sprintId', issue, CONFIG), 10, 'sprintId');
-  assertEqual_(extractField('description', issue, CONFIG), 'Hello\nWorld', 'description');
+  assertEqual_(extractField('summary', issue, CONFIG), 'Hello World', 'summary');
   if (extractField('createdDate', issue, CONFIG) === '') {
     throw new Error('createdDate: expected a formatted date, got empty string');
   }
@@ -46,14 +46,7 @@ function sampleEditorIssue_() {
     status: { name: 'In Progress' },
     assignee: { displayName: 'Jane Doe' },
     created: '2026-06-03T10:30:00.000+0700',
-    description: {
-      type: 'doc',
-      version: 1,
-      content: [
-        { type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] },
-        { type: 'paragraph', content: [{ type: 'text', text: 'World' }] },
-      ],
-    },
+    summary: 'Hello World',
   };
   fields[CONFIG.CUSTOM_FIELDS.storyPoints] = 5;
   fields[CONFIG.CUSTOM_FIELDS.sprint] = [{ id: 10, state: 'active', name: 'Sprint 10' }];
