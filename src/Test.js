@@ -27,7 +27,7 @@ function testExtractors_() {
 
 function testIntegrationUpsert() {
   upsertIssue(sampleEditorIssue_());
-  console.log('Upserted TEST-99999 — check the "' + CONFIG.SHEET_NAME + '" tab, then run testIntegrationCleanup');
+  console.log('Upserted TEST-99999 — check the "10_Sprint 10" tab (cloned from "' + CONFIG.TEMPLATE_SHEET + '"), then run testIntegrationCleanup');
 }
 
 function testIntegrationCleanup() {
