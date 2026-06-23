@@ -3,6 +3,24 @@ function sprintSheetName_(sprint) {
   return (sprint.id + '_' + safeName).slice(0, 100);
 }
 
+function getSprintSheet_(sprint) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const target = sprintSheetName_(sprint);
+  const prefix = sprint.id + '_';
+  const sheets = ss.getSheets();
+  for (let i = 0; i < sheets.length; i++) {
+    const name = sheets[i].getName();
+    if (name === CONFIG.TEMPLATE_SHEET) continue;
+    if (name.indexOf(prefix) === 0) {
+      if (name !== target) sheets[i].setName(target);
+      return sheets[i];
+    }
+  }
+  const template = ss.getSheetByName(CONFIG.TEMPLATE_SHEET);
+  if (!template) throw new Error('Template tab not found: ' + CONFIG.TEMPLATE_SHEET);
+  return template.copyTo(ss).setName(target);
+}
+
 function getSheet_() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_NAME);
   if (!sheet) throw new Error('Sheet tab not found: ' + CONFIG.SHEET_NAME);
