@@ -21,10 +21,20 @@ function getSprintSheet_(sprint) {
   return template.copyTo(ss).setName(target);
 }
 
-function getSheet_() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_NAME);
-  if (!sheet) throw new Error('Sheet tab not found: ' + CONFIG.SHEET_NAME);
-  return sheet;
+function isSprintTab_(sheet) {
+  if (sheet.getName() === CONFIG.TEMPLATE_SHEET) return false;
+  return /^\d+_/.test(sheet.getName());
+}
+
+function removeKeyFromAllSprintTabs_(issueKey, exceptSheet) {
+  const sheets = SpreadsheetApp.getActiveSpreadsheet().getSheets();
+  for (let i = 0; i < sheets.length; i++) {
+    const sheet = sheets[i];
+    if (!isSprintTab_(sheet)) continue;
+    if (exceptSheet && sheet.getName() === exceptSheet.getName()) continue;
+    const row = findRowByKey_(sheet, issueKey);
+    if (row) sheet.deleteRow(row);
+  }
 }
 
 function findRowByKey_(sheet, issueKey) {
@@ -40,7 +50,13 @@ function findRowByKey_(sheet, issueKey) {
 }
 
 function upsertIssue(issue) {
-  const sheet = getSheet_();
+  const sprint = pickSprint(issue.fields[CONFIG.CUSTOM_FIELDS.sprint]);
+  if (!sprint) {
+    console.log('Skipped ' + issue.key + ': no sprint');
+    return;
+  }
+  const sheet = getSprintSheet_(sprint);
+  removeKeyFromAllSprintTabs_(issue.key, sheet);
   let row = findRowByKey_(sheet, issue.key);
   if (!row) row = Math.max(sheet.getLastRow(), CONFIG.HEADER_ROWS) + 1;
   for (const letter in CONFIG.COLUMN_MAP) {
