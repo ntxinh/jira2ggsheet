@@ -1,3 +1,8 @@
+function sprintSheetName_(sprint) {
+  const safeName = String(sprint.name == null ? '' : sprint.name).replace(/[\[\]:\\/?*]/g, '-');
+  return (sprint.id + '_' + safeName).slice(0, 100);
+}
+
 function getSheet_() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_NAME);
   if (!sheet) throw new Error('Sheet tab not found: ' + CONFIG.SHEET_NAME);
