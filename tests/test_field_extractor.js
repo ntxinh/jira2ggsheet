@@ -97,4 +97,28 @@ module.exports = {
     // fields: null makes every fields.* access throw
     assert.strictEqual(app.extractField('issueType', { key: 'X-1', fields: null }, app.CONFIG), '');
   },
+  'pickSprint returns the full active sprint object'() {
+    const sprints = [
+      { id: 9, state: 'closed', name: 'S9' },
+      { id: 10, state: 'active', name: 'Sprint 10' },
+      { id: 11, state: 'future', name: 'S11' },
+    ];
+    assert.deepEqual(app.pickSprint(sprints), { id: 10, name: 'Sprint 10', state: 'active' });
+  },
+  'pickSprint falls back to the last sprint when none active'() {
+    const sprints = [{ id: 9, state: 'closed', name: 'S9' }, { id: 11, state: 'future', name: 'S11' }];
+    assert.deepEqual(app.pickSprint(sprints), { id: 11, name: 'S11', state: 'future' });
+  },
+  'pickSprint returns null for empty, null, and missing field'() {
+    assert.strictEqual(app.pickSprint([]), null);
+    assert.strictEqual(app.pickSprint(null), null);
+    assert.strictEqual(app.pickSprint(undefined), null);
+  },
+  'pickSprint parses name from legacy string-encoded sprints'() {
+    const legacy = ['com.atlassian.greenhopper.service.sprint.Sprint@2a[id=10,state=ACTIVE,name=Sprint 10]'];
+    assert.deepEqual(app.pickSprint(legacy), { id: 10, name: 'Sprint 10', state: 'active' });
+  },
+  'pickSprint defaults name to empty string when absent'() {
+    assert.deepEqual(app.pickSprint([{ id: 5, state: 'active' }]), { id: 5, name: '', state: 'active' });
+  },
 };

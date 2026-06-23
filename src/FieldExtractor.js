@@ -11,29 +11,43 @@ function columnLetterToIndex(letter) {
   return index;
 }
 
-function pickSprintId(sprintField) {
-  if (!Array.isArray(sprintField) || sprintField.length === 0) return '';
+function pickSprint(sprintField) {
+  if (!Array.isArray(sprintField) || sprintField.length === 0) return null;
   const sprints = sprintField.map(parseSprint_).filter(function (s) {
     return s !== null;
   });
-  if (sprints.length === 0) return '';
+  if (sprints.length === 0) return null;
   const active = sprints.find(function (s) {
     return s.state === 'active';
   });
-  return (active || sprints[sprints.length - 1]).id;
+  return active || sprints[sprints.length - 1];
+}
+
+function pickSprintId(sprintField) {
+  const sprint = pickSprint(sprintField);
+  return sprint ? sprint.id : '';
 }
 
 function parseSprint_(entry) {
   if (entry == null) return null;
   if (typeof entry === 'object') {
     if (entry.id == null) return null;
-    return { id: entry.id, state: String(entry.state || '').toLowerCase() };
+    return {
+      id: entry.id,
+      name: entry.name == null ? '' : String(entry.name),
+      state: String(entry.state || '').toLowerCase(),
+    };
   }
   if (typeof entry === 'string') {
     const idMatch = entry.match(/\bid=(\d+)/);
     if (!idMatch) return null;
     const stateMatch = entry.match(/\bstate=(\w+)/);
-    return { id: Number(idMatch[1]), state: stateMatch ? stateMatch[1].toLowerCase() : '' };
+    const nameMatch = entry.match(/\bname=([^,\]]+)/);
+    return {
+      id: Number(idMatch[1]),
+      name: nameMatch ? nameMatch[1] : '',
+      state: stateMatch ? stateMatch[1].toLowerCase() : '',
+    };
   }
   return null;
 }
