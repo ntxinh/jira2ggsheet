@@ -66,13 +66,17 @@ function upsertIssue(issue) {
 }
 
 function deleteIssue(issue) {
-  const sheet = getSheet_();
-  const row = findRowByKey_(sheet, issue.key);
-  if (!row) return;
-  if (CONFIG.DELETE_MODE === 'delete') {
-    sheet.deleteRow(row);
-  } else {
-    sheet.getRange(row, statusColumnIndex_()).setValue('Deleted');
+  const sheets = SpreadsheetApp.getActiveSpreadsheet().getSheets();
+  for (let i = 0; i < sheets.length; i++) {
+    const sheet = sheets[i];
+    if (!isSprintTab_(sheet)) continue;
+    const row = findRowByKey_(sheet, issue.key);
+    if (!row) continue;
+    if (CONFIG.DELETE_MODE === 'delete') {
+      sheet.deleteRow(row);
+    } else {
+      sheet.getRange(row, statusColumnIndex_()).setValue('Deleted');
+    }
   }
 }
 
