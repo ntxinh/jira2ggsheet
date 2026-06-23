@@ -9,7 +9,7 @@ issue's per-sprint tab (`{Sprint Id}_{Sprint Name}`), cloned from a `Template`
 tab. Issues with no sprint are skipped. Column ↔ field mapping is configurable
 (`src/Config.js`).
 
-- Design: `docs/superpowers/specs/2026-06-03-jira2ggsheet-design.md`
+- Design: `docs/superpowers/specs/2026-06-23-per-sprint-sheets-design.md`
 - Deployment guide: `SETUP.md`
 
 ## Layout

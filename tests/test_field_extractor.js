@@ -98,6 +98,7 @@ module.exports = {
     assert.strictEqual(app.extractField('issueType', { key: 'X-1', fields: null }, app.CONFIG), '');
   },
   'pickSprint returns the full active sprint object'() {
+    // deepEqual, not deepStrictEqual: the harness loads src into a vm context, so returned objects are cross-realm and fail deepStrictEqual's prototype check.
     const sprints = [
       { id: 9, state: 'closed', name: 'S9' },
       { id: 10, state: 'active', name: 'Sprint 10' },

@@ -18,6 +18,7 @@ function getSprintSheet_(sprint) {
   }
   const template = ss.getSheetByName(CONFIG.TEMPLATE_SHEET);
   if (!template) throw new Error('Template tab not found: ' + CONFIG.TEMPLATE_SHEET);
+  // Safe to clone-then-rename only because the prefix-match loop above already returned any existing {id}_ tab; setName(target) would throw on a name collision.
   return template.copyTo(ss).setName(target);
 }
 
