@@ -125,6 +125,20 @@ module.exports = {
     app.deleteIssue({ key: 'ABC-123' });
     assert.strictEqual(tabNamed(ss, '11_Sprint 11').rows.length, 1); // removed from the right tab
   },
+  'deleteIssue marks the row across multiple sprint tabs'() {
+    const here = ['11', '', 'ABC-123', 'Story', 'Low', '', 'To Do',
+      '', '', '', '', '', '', '', '', 1, '', '', '', '', ''];
+    const { app, ss } = makeApp([
+      { name: 'Template', rows: [HEADER] },
+      { name: '10_Sprint 10', rows: [HEADER] },
+      { name: '11_Sprint 11', rows: [HEADER, here] },
+    ]);
+    app.CONFIG.DELETE_MODE = 'mark';
+    app.deleteIssue({ key: 'ABC-123' });
+    const sheet = tabNamed(ss, '11_Sprint 11');
+    assert.strictEqual(sheet.rows.length, 2); // row kept
+    assert.strictEqual(sheet.rows[1][6], 'Deleted'); // G = status column
+  },
   'deleteIssue is a no-op for unknown keys'() {
     const { app, ss } = makeApp([
       { name: 'Template', rows: [HEADER] },

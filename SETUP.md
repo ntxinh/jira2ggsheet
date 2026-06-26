@@ -76,8 +76,8 @@ sheet, check it, then run `testIntegrationCleanup` to remove it.
 
 ## 7. Test end to end
 
-1. Create an issue in the Jira project → a row should appear in the sheet
-   within a few seconds.
+1. Create an issue in the Jira project and assign it to a sprint → a row should
+   appear in that sprint's tab within a few seconds.
 2. Change its assignee or story points → the row updates.
 3. Transition it (To Do → In Progress) → the status cell updates.
 4. Check logs: Apps Script editor → **Executions** (left sidebar). Every
