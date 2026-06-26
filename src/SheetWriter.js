@@ -1,7 +1,41 @@
-function getSheet_() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_NAME);
-  if (!sheet) throw new Error('Sheet tab not found: ' + CONFIG.SHEET_NAME);
-  return sheet;
+function sprintSheetName_(sprint) {
+  const safeName = String(sprint.name == null ? '' : sprint.name).replace(/[\[\]:\\/?*]/g, '-');
+  return (sprint.id + '_' + safeName).slice(0, 100);
+}
+
+function getSprintSheet_(sprint) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const target = sprintSheetName_(sprint);
+  const prefix = sprint.id + '_';
+  const sheets = ss.getSheets();
+  for (let i = 0; i < sheets.length; i++) {
+    const name = sheets[i].getName();
+    if (name === CONFIG.TEMPLATE_SHEET) continue;
+    if (name.indexOf(prefix) === 0) {
+      if (name !== target) sheets[i].setName(target);
+      return sheets[i];
+    }
+  }
+  const template = ss.getSheetByName(CONFIG.TEMPLATE_SHEET);
+  if (!template) throw new Error('Template tab not found: ' + CONFIG.TEMPLATE_SHEET);
+  // Safe to clone-then-rename only because the prefix-match loop above already returned any existing {id}_ tab; setName(target) would throw on a name collision.
+  return template.copyTo(ss).setName(target);
+}
+
+function isSprintTab_(sheet) {
+  if (sheet.getName() === CONFIG.TEMPLATE_SHEET) return false;
+  return /^\d+_/.test(sheet.getName());
+}
+
+function removeKeyFromAllSprintTabs_(issueKey, exceptSheet) {
+  const sheets = SpreadsheetApp.getActiveSpreadsheet().getSheets();
+  for (let i = 0; i < sheets.length; i++) {
+    const sheet = sheets[i];
+    if (!isSprintTab_(sheet)) continue;
+    if (exceptSheet && sheet.getName() === exceptSheet.getName()) continue;
+    const row = findRowByKey_(sheet, issueKey);
+    if (row) sheet.deleteRow(row);
+  }
 }
 
 function findRowByKey_(sheet, issueKey) {
@@ -17,7 +51,13 @@ function findRowByKey_(sheet, issueKey) {
 }
 
 function upsertIssue(issue) {
-  const sheet = getSheet_();
+  const sprint = pickSprint(issue.fields[CONFIG.CUSTOM_FIELDS.sprint]);
+  if (!sprint) {
+    console.log('Skipped ' + issue.key + ': no sprint');
+    return;
+  }
+  const sheet = getSprintSheet_(sprint);
+  removeKeyFromAllSprintTabs_(issue.key, sheet);
   let row = findRowByKey_(sheet, issue.key);
   if (!row) row = Math.max(sheet.getLastRow(), CONFIG.HEADER_ROWS) + 1;
   for (const letter in CONFIG.COLUMN_MAP) {
@@ -27,13 +67,17 @@ function upsertIssue(issue) {
 }
 
 function deleteIssue(issue) {
-  const sheet = getSheet_();
-  const row = findRowByKey_(sheet, issue.key);
-  if (!row) return;
-  if (CONFIG.DELETE_MODE === 'delete') {
-    sheet.deleteRow(row);
-  } else {
-    sheet.getRange(row, statusColumnIndex_()).setValue('Deleted');
+  const sheets = SpreadsheetApp.getActiveSpreadsheet().getSheets();
+  for (let i = 0; i < sheets.length; i++) {
+    const sheet = sheets[i];
+    if (!isSprintTab_(sheet)) continue;
+    const row = findRowByKey_(sheet, issue.key);
+    if (!row) continue;
+    if (CONFIG.DELETE_MODE === 'delete') {
+      sheet.deleteRow(row);
+    } else {
+      sheet.getRange(row, statusColumnIndex_()).setValue('Deleted');
+    }
   }
 }
 

@@ -1,5 +1,5 @@
 var CONFIG = {
-  SHEET_NAME: 'Issues',
+  TEMPLATE_SHEET: 'Template',
   KEY_COLUMN: 'C',
   HEADER_ROWS: 1,
   DELETE_MODE: 'delete',

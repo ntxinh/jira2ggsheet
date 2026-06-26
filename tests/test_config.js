@@ -4,7 +4,7 @@ const { loadAppsScript } = require('./harness');
 module.exports = {
   'CONFIG loads with required keys'() {
     const app = loadAppsScript({});
-    assert.strictEqual(typeof app.CONFIG.SHEET_NAME, 'string');
+    assert.strictEqual(typeof app.CONFIG.TEMPLATE_SHEET, 'string');
     assert.strictEqual(typeof app.CONFIG.SECRET_TOKEN, 'string');
     assert.strictEqual(typeof app.CONFIG.PROJECT_KEY, 'string');
     assert.ok(app.CONFIG.COLUMN_MAP.C, 'issue key column must be mapped');

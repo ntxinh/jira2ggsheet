@@ -2,8 +2,11 @@
 
 ## 1. Create the sheet and Apps Script project
 
-1. Open (or create) the target Google Sheet. Make sure the tab is named `Issues`
-   (or change `SHEET_NAME` in the config to match).
+1. Open (or create) the target Google Sheet. Create a tab named `Template`
+   (or change `TEMPLATE_SHEET` in the config to match). Add your header row and
+   any column formatting to `Template` — per-sprint tabs are cloned from it
+   automatically when an issue arrives. You do not need to create sprint tabs
+   manually.
 2. Menu: **Extensions → Apps Script**. This creates a script bound to the sheet.
 3. In the editor, create one script file per file in `src/` (**+ → Script**) and
    paste the contents: `Config`, `FieldExtractor`, `SheetWriter`, `WebApp`, `Test`.
@@ -31,7 +34,7 @@ Sprint and Story Points are custom fields whose IDs differ per Jira site.
 In the `Config` file set:
 
 - `PROJECT_KEY` — your Jira project key (e.g. `ABC`)
-- `SHEET_NAME` — the tab name
+- `TEMPLATE_SHEET` — the name of the template tab (default: `Template`); per-sprint tabs are cloned from it
 - `SECRET_TOKEN` — a long random string. Generate one, e.g. in a terminal:
   `openssl rand -hex 32`
 - `DELETE_MODE` — `'delete'` (remove the row when the issue is deleted) or
@@ -73,8 +76,8 @@ sheet, check it, then run `testIntegrationCleanup` to remove it.
 
 ## 7. Test end to end
 
-1. Create an issue in the Jira project → a row should appear in the sheet
-   within a few seconds.
+1. Create an issue in the Jira project and assign it to a sprint → a row should
+   appear in that sprint's tab within a few seconds.
 2. Change its assignee or story points → the row updates.
 3. Transition it (To Do → In Progress) → the status cell updates.
 4. Check logs: Apps Script editor → **Executions** (left sidebar). Every

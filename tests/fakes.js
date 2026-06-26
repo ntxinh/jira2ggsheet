@@ -1,6 +1,22 @@
 class FakeSheet {
-  constructor(rows) {
-    this.rows = rows.map((r) => r.slice());
+  constructor(rows, name) {
+    this.rows = (rows || []).map((r) => r.slice());
+    this.name = name || '';
+  }
+
+  getName() {
+    return this.name;
+  }
+
+  setName(name) {
+    this.name = name;
+    return this;
+  }
+
+  copyTo(ss) {
+    const copy = new FakeSheet(this.rows, 'Copy of ' + this.name);
+    ss._sheets.push(copy);
+    return copy;
   }
 
   getLastRow() {
@@ -41,14 +57,19 @@ class FakeSheet {
   }
 }
 
-function fakeSpreadsheetApp(sheetsByName) {
+function fakeSpreadsheetApp(sheets) {
+  const ss = {
+    _sheets: sheets.slice(),
+    getSheets() {
+      return this._sheets;
+    },
+    getSheetByName(name) {
+      return this._sheets.find((s) => s.getName() === name) || null;
+    },
+  };
   return {
     getActiveSpreadsheet() {
-      return {
-        getSheetByName(name) {
-          return sheetsByName[name] || null;
-        },
-      };
+      return ss;
     },
   };
 }
