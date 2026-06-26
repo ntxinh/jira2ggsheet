@@ -16,7 +16,7 @@ tab. Issues with no sprint are skipped. Column ↔ field mapping is configurable
 
 | Path | What |
 |---|---|
-| `src/Config.js` | All settings: column map, custom field IDs, secret token, delete mode, template tab name (`TEMPLATE_SHEET`) |
+| `src/Config.js` | All settings: spreadsheet ID (optional), column map, custom field IDs, secret token, delete mode, template tab name (`TEMPLATE_SHEET`) |
 | `src/FieldExtractor.js` | Webhook JSON → cell values (sprint arrays, dates) |
 | `src/SheetWriter.js` | Row upsert / delete (only file touching SpreadsheetApp) |
 | `src/WebApp.js` | `doPost` entry point: token auth, project filter, event routing |
