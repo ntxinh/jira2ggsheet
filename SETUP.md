@@ -35,6 +35,10 @@ In the `Config` file set:
 
 - `PROJECT_KEY` — your Jira project key (e.g. `ABC`)
 - `TEMPLATE_SHEET` — the name of the template tab (default: `Template`); per-sprint tabs are cloned from it
+- `SPREADSHEET_ID` — optional. Leave empty for a script bound to the target
+  sheet. Set it when the Apps Script project is owned by a different Gmail than
+  the sheet owner, or when the script is standalone. Copy the ID from the sheet
+  URL: the part between `/d/` and `/edit`.
 - `SECRET_TOKEN` — a long random string. Generate one, e.g. in a terminal:
   `openssl rand -hex 32`
 - `DELETE_MODE` — `'delete'` (remove the row when the issue is deleted) or
@@ -61,6 +65,17 @@ sheet, check it, then run `testIntegrationCleanup` to remove it.
 > After every code change: **Deploy → Manage deployments → ✏️ Edit →
 > Version: New version → Deploy**. This keeps the same URL. Creating a brand
 > new deployment changes the URL and breaks the webhook.
+
+### Two Gmail accounts
+
+If the Google Sheet owner and Apps Script owner are different accounts:
+
+1. The sheet owner must share the target sheet with the Apps Script owner as
+   **Editor**.
+2. The Apps Script owner sets `SPREADSHEET_ID` in `Config`.
+3. The Apps Script owner deploys the web app with **Execute as: Me**.
+
+Without editor access, `SpreadsheetApp.openById` cannot write to the sheet.
 
 ## 6. Register the Jira webhook
 

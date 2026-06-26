@@ -57,8 +57,8 @@ class FakeSheet {
   }
 }
 
-function fakeSpreadsheetApp(sheets) {
-  const ss = {
+function makeSpreadsheet_(sheets) {
+  return {
     _sheets: sheets.slice(),
     getSheets() {
       return this._sheets;
@@ -67,9 +67,27 @@ function fakeSpreadsheetApp(sheets) {
       return this._sheets.find((s) => s.getName() === name) || null;
     },
   };
+}
+
+function fakeSpreadsheetApp(sheets, options) {
+  options = options || {};
+  const active = makeSpreadsheet_(sheets);
+  const byId = {};
+  const sourceById = options.spreadsheetsById || {};
+  for (const id of Object.keys(sourceById)) {
+    byId[id] = makeSpreadsheet_(sourceById[id]);
+  }
+
   return {
+    openedIds: [],
+    _spreadsheetsById: byId,
     getActiveSpreadsheet() {
-      return ss;
+      return active;
+    },
+    openById(id) {
+      this.openedIds.push(id);
+      if (!byId[id]) throw new Error('Spreadsheet not found: ' + id);
+      return byId[id];
     },
   };
 }
