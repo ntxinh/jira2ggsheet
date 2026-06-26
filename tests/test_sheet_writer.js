@@ -8,9 +8,13 @@ const HEADER = [
   '', '', '', '', 'Created', '', '', '', 'Points', '', '', '', '', 'Assignee',
 ];
 
-function makeApp(sheetSpecs) {
-  const sheets = sheetSpecs.map((s) => new FakeSheet(s.rows, s.name));
-  const app = loadAppsScript({ SpreadsheetApp: fakeSpreadsheetApp(sheets) });
+function makeSheets(sheetSpecs) {
+  return sheetSpecs.map((s) => new FakeSheet(s.rows, s.name));
+}
+
+function makeApp(sheetSpecs, options) {
+  const spreadsheetApp = fakeSpreadsheetApp(makeSheets(sheetSpecs), options);
+  const app = loadAppsScript({ SpreadsheetApp: spreadsheetApp });
   const ss = app.SpreadsheetApp.getActiveSpreadsheet();
   return { app, ss };
 }
@@ -88,6 +92,27 @@ module.exports = {
     const { app } = makeApp([{ name: 'Issues', rows: [HEADER] }]);
     assert.throws(() => app.upsertIssue(sampleIssue(app)), /Template tab not found/);
   },
+  'upsertIssue writes to CONFIG.SPREADSHEET_ID when configured'() {
+    const targetSheets = makeSheets([{ name: 'Template', rows: [HEADER] }]);
+    const activeRow = ['10', 'active sentinel', 'ABC-123', 'Bug', 'Low', 'active title', 'To Do',
+      '', '', '', '', 'active date', '', '', '', 1, '', '', '', '', 'Active User'];
+    const expectedActiveRow = activeRow.slice();
+    const { app, ss } = makeApp(
+      [
+        { name: 'Template', rows: [HEADER] },
+        { name: '10_Sprint 10', rows: [HEADER, activeRow] },
+      ],
+      { spreadsheetsById: { sheet123: targetSheets } }
+    );
+    app.CONFIG.SPREADSHEET_ID = 'sheet123';
+    app.upsertIssue(sampleIssue(app));
+    assert.deepStrictEqual(tabNamed(ss, '10_Sprint 10').rows[1], expectedActiveRow); // active spreadsheet untouched
+    const targetSs = app.SpreadsheetApp._spreadsheetsById.sheet123;
+    const sheet = tabNamed(targetSs, '10_Sprint 10');
+    assert.ok(sheet, 'sprint tab created in configured spreadsheet');
+    assert.strictEqual(sheet.rows[1][2], 'ABC-123');
+    assert.ok(app.SpreadsheetApp.openedIds.includes('sheet123'));
+  },
 
   'deleteIssue removes the row in delete mode'() {
     const existing = ['9', '', 'ABC-123', 'Story', 'Low', '', 'To Do',
@@ -99,6 +124,28 @@ module.exports = {
     app.CONFIG.DELETE_MODE = 'delete';
     app.deleteIssue({ key: 'ABC-123' });
     assert.strictEqual(tabNamed(ss, '10_Sprint 10').rows.length, 1); // only header left
+  },
+  'deleteIssue uses CONFIG.SPREADSHEET_ID when configured'() {
+    const existing = ['9', '', 'ABC-123', 'Story', 'Low', '', 'To Do',
+      '', '', '', '', '', '', '', '', 1, '', '', '', '', ''];
+    const targetSheets = makeSheets([
+      { name: 'Template', rows: [HEADER] },
+      { name: '10_Sprint 10', rows: [HEADER, existing] },
+    ]);
+    const { app, ss } = makeApp(
+      [{ name: 'Template', rows: [HEADER] }],
+      { spreadsheetsById: { sheet123: targetSheets } }
+    );
+    app.CONFIG.SPREADSHEET_ID = 'sheet123';
+    app.CONFIG.DELETE_MODE = 'delete';
+    app.deleteIssue({ key: 'ABC-123' });
+    assert.strictEqual(tabNamed(ss, '10_Sprint 10'), null); // active spreadsheet untouched
+    const targetSs = app.SpreadsheetApp._spreadsheetsById.sheet123;
+    const targetSheet = tabNamed(targetSs, '10_Sprint 10');
+    assert.strictEqual(targetSheet.rows.length, 1);
+    assert.deepStrictEqual(targetSheet.rows[0], HEADER);
+    assert.strictEqual(targetSheet.rows.some((row) => row[2] === 'ABC-123'), false);
+    assert.ok(app.SpreadsheetApp.openedIds.includes('sheet123'));
   },
   'deleteIssue marks the status column in mark mode'() {
     const existing = ['9', '', 'ABC-123', 'Story', 'Low', '', 'To Do',

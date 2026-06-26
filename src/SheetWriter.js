@@ -1,10 +1,15 @@
+function getTargetSpreadsheet_() {
+  if (CONFIG.SPREADSHEET_ID) return SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  return SpreadsheetApp.getActiveSpreadsheet();
+}
+
 function sprintSheetName_(sprint) {
   const safeName = String(sprint.name == null ? '' : sprint.name).replace(/[\[\]:\\/?*]/g, '-');
   return (sprint.id + '_' + safeName).slice(0, 100);
 }
 
 function getSprintSheet_(sprint) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getTargetSpreadsheet_();
   const target = sprintSheetName_(sprint);
   const prefix = sprint.id + '_';
   const sheets = ss.getSheets();
@@ -28,7 +33,7 @@ function isSprintTab_(sheet) {
 }
 
 function removeKeyFromAllSprintTabs_(issueKey, exceptSheet) {
-  const sheets = SpreadsheetApp.getActiveSpreadsheet().getSheets();
+  const sheets = getTargetSpreadsheet_().getSheets();
   for (let i = 0; i < sheets.length; i++) {
     const sheet = sheets[i];
     if (!isSprintTab_(sheet)) continue;
@@ -67,7 +72,7 @@ function upsertIssue(issue) {
 }
 
 function deleteIssue(issue) {
-  const sheets = SpreadsheetApp.getActiveSpreadsheet().getSheets();
+  const sheets = getTargetSpreadsheet_().getSheets();
   for (let i = 0; i < sheets.length; i++) {
     const sheet = sheets[i];
     if (!isSprintTab_(sheet)) continue;

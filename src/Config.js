@@ -1,5 +1,6 @@
 var CONFIG = {
   TEMPLATE_SHEET: 'Template',
+  SPREADSHEET_ID: '',
   KEY_COLUMN: 'C',
   HEADER_ROWS: 1,
   DELETE_MODE: 'delete',
