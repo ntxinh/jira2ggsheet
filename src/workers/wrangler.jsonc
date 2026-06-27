@@ -1,0 +1,20 @@
+{
+  "name": "jira2ggsheet",
+  "main": "index.ts",
+  "compatibility_date": "2025-04-01",
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "PROJECT_KEY": "ABC",
+    "TEMPLATE_SHEET": "Template",
+    "KEY_COLUMN": "C",
+    "HEADER_ROWS": "1",
+    "DELETE_MODE": "delete",
+    "TIMEZONE": "Asia/Ho_Chi_Minh",
+    "DATE_FORMAT": "yyyy-MM-dd HH:mm",
+    "CUSTOM_FIELDS_SPRINT": "customfield_10016",
+    "CUSTOM_FIELDS_STORY_POINTS": "customfield_10021",
+    "COLUMN_MAP_JSON": "{\"A\":\"sprintId\",\"C\":\"issueKey\",\"D\":\"issueType\",\"E\":\"priority\",\"F\":\"summary\",\"G\":\"status\",\"L\":\"createdDate\",\"P\":\"storyPoints\",\"U\":\"assignee\"}"
+  }
+}
