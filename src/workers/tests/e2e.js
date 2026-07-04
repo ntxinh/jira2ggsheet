@@ -197,6 +197,11 @@ function issueWithMarker(issue, field) {
   return { issue: markedIssue, verification: { column: field.column, expected: value } };
 }
 
+function issueVerification(issue, field) {
+  const value = field.field === 'summary' ? issue.fields.summary : issue.fields.status?.name;
+  return { column: field.column, expected: String(value ?? '') };
+}
+
 async function findIssueInSheet(env, vars, token, issue, verification) {
   const issueKey = issue.key;
   const id = encodeURIComponent(env.SPREADSHEET_ID);
@@ -366,22 +371,26 @@ async function main() {
   try {
     await waitForWorker(child, localUrl);
     const issue = await fetchJiraIssue(env);
-    const { issue: markedIssue, verification } = issueWithMarker(issue, verificationField(env));
+    const field = verificationField(env);
+    const { issue: markedIssue, verification } = issueWithMarker(issue, field);
+    const originalVerification = issueVerification(issue, field);
     let sheetTitle;
-    let verifyError;
-    await postWebhook(env, markedIssue, localUrl);
+    let markerPosted = false;
     try {
+      await postWebhook(env, markedIssue, localUrl);
+      markerPosted = true;
       sheetTitle = await waitForIssueInSheet(env, env, markedIssue, verification);
-    } catch (err) {
-      verifyError = err;
+      console.log(`PASS e2e: ${issue.key} found in ${sheetTitle}`);
+    } finally {
+      if (markerPosted) {
+        try {
+          await postWebhook(env, issue, localUrl);
+          await waitForIssueInSheet(env, env, issue, originalVerification);
+        } catch (err) {
+          console.warn(`Failed to restore original issue after e2e marker: ${err.message}`);
+        }
+      }
     }
-    try {
-      await postWebhook(env, issue, localUrl);
-    } catch (err) {
-      console.warn(`Failed to restore original issue after e2e marker: ${err.message}`);
-    }
-    if (verifyError) throw verifyError;
-    console.log(`PASS e2e: ${issue.key} found in ${sheetTitle}`);
   } finally {
     await stopWrangler(child);
   }
