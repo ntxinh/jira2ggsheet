@@ -1,4 +1,5 @@
 const fs = require('fs');
+const net = require('net');
 const path = require('path');
 const { spawn } = require('child_process');
 const { webcrypto } = require('crypto');
@@ -6,7 +7,6 @@ const { webcrypto } = require('crypto');
 const ROOT = path.resolve(__dirname, '..');
 const DEV_VARS = path.join(ROOT, '.dev.vars');
 const E2E_ENV = path.join(ROOT, '.e2e.env');
-const LOCAL_URL = 'http://127.0.0.1:8787';
 
 function parseEnvFile(file) {
   if (!fs.existsSync(file)) return {};
@@ -40,6 +40,18 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function getFreePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
+}
+
 async function fetchJson(url, options = {}) {
   const res = await fetch(url, options);
   const text = await res.text();
@@ -49,10 +61,14 @@ async function fetchJson(url, options = {}) {
   return text ? JSON.parse(text) : null;
 }
 
-function startWrangler() {
+function exitedMessage(child) {
+  return `wrangler dev exited before becoming ready (code ${child.exitCode}, signal ${child.signalCode})`;
+}
+
+function startWrangler(port) {
   const child = spawn(
     process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    ['wrangler', 'dev', '--local', '--port', '8787'],
+    ['wrangler', 'dev', '--local', '--port', String(port)],
     { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] },
   );
 
@@ -62,18 +78,18 @@ function startWrangler() {
   return child;
 }
 
-async function waitForWorker(child) {
+async function waitForWorker(child, localUrl) {
   const started = Date.now();
   while (Date.now() - started < 30000) {
     if (child.exitCode !== null) {
-      throw new Error('wrangler dev exited before becoming ready');
+      throw new Error(exitedMessage(child));
     }
     try {
-      const res = await fetch(LOCAL_URL);
+      const res = await fetch(localUrl);
       const text = await res.text();
       if (res.status === 405 && text === 'Method not allowed') {
         if (child.exitCode !== null) {
-          throw new Error('wrangler dev exited before becoming ready');
+          throw new Error(exitedMessage(child));
         }
         return;
       }
@@ -85,11 +101,11 @@ async function waitForWorker(child) {
 
 async function stopWrangler(child) {
   if (!child || child.exitCode !== null) return;
+  const exited = new Promise((resolve) => child.once('exit', resolve));
   child.kill('SIGTERM');
-  await Promise.race([
-    new Promise((resolve) => child.once('exit', resolve)),
-    sleep(3000).then(() => child.kill('SIGKILL')),
-  ]);
+  if (await Promise.race([exited.then(() => true), sleep(3000).then(() => false)])) return;
+  child.kill('SIGKILL');
+  await Promise.race([exited, sleep(3000)]);
 }
 
 async function fetchJiraIssue(env) {
@@ -103,8 +119,8 @@ async function fetchJiraIssue(env) {
   });
 }
 
-async function postWebhook(env, issue) {
-  const res = await fetch(`${LOCAL_URL}?token=${encodeURIComponent(env.SECRET_TOKEN)}`, {
+async function postWebhook(env, issue, localUrl) {
+  const res = await fetch(`${localUrl}?token=${encodeURIComponent(env.SECRET_TOKEN)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -136,11 +152,13 @@ async function main() {
     'JIRA_ISSUE_KEY',
   ]);
 
-  const child = startWrangler();
+  const port = await getFreePort();
+  const localUrl = `http://127.0.0.1:${port}`;
+  const child = startWrangler(port);
   try {
-    await waitForWorker(child);
+    await waitForWorker(child, localUrl);
     const issue = await fetchJiraIssue(env);
-    await postWebhook(env, issue);
+    await postWebhook(env, issue, localUrl);
     console.log(`Posted ${issue.key} to local Worker`);
   } finally {
     await stopWrangler(child);
