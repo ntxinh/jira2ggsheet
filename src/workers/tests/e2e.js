@@ -78,6 +78,7 @@ function startWrangler(port) {
 
   child.stdout.on('data', (buf) => process.stdout.write('[wrangler] ' + buf));
   child.stderr.on('data', (buf) => process.stderr.write('[wrangler] ' + buf));
+  child.on('error', (err) => console.error('Failed to start wrangler dev: ' + err.message));
 
   return child;
 }
@@ -104,12 +105,24 @@ async function waitForWorker(child, localUrl) {
 }
 
 async function stopWrangler(child) {
-  if (!child || child.exitCode !== null) return;
+  if (!child || hasExited(child)) return;
   const exited = new Promise((resolve) => child.once('exit', resolve));
   child.kill('SIGTERM');
   if (await Promise.race([exited.then(() => true), sleep(3000).then(() => false)])) return;
   child.kill('SIGKILL');
   await Promise.race([exited, sleep(3000)]);
+}
+
+function cleanupOnSignal(child) {
+  let cleaning = false;
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    process.once(signal, async () => {
+      if (cleaning) return;
+      cleaning = true;
+      await stopWrangler(child);
+      process.exit(signal === 'SIGINT' ? 130 : 143);
+    });
+  }
 }
 
 async function fetchJiraIssue(env) {
@@ -159,6 +172,7 @@ async function main() {
   const port = await getFreePort();
   const localUrl = `http://127.0.0.1:${port}`;
   const child = startWrangler(port);
+  cleanupOnSignal(child);
   try {
     await waitForWorker(child, localUrl);
     const issue = await fetchJiraIssue(env);
