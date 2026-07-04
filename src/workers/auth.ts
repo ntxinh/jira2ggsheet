@@ -14,6 +14,7 @@ function base64UrlEncode(buf: Uint8Array): string {
 
 function pemToBinary(pem: string): ArrayBuffer {
   const clean = pem
+    .replace(/\\n/g, '\n')
     .replace(/-----BEGIN PRIVATE KEY-----/, '')
     .replace(/-----END PRIVATE KEY-----/, '')
     .replace(/\s/g, '');
