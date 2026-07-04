@@ -44,5 +44,6 @@ node src/gas/tests/run.js        # Node test suite
 cd src/workers
 npm run dev                     # wrangler dev (local dev server)
 npm run typecheck               # tsc --noEmit
+npm run test:e2e                # local Worker + real Jira + real Google Sheets
 npm run deploy                  # wrangler deploy
 ```

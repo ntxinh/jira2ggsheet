@@ -49,6 +49,37 @@ cd src/workers
 npm install
 ```
 
+### Local real e2e test
+
+Create `src/workers/.dev.vars` with the same secrets used by the Worker:
+
+```dotenv
+SECRET_TOKEN=...
+GOOGLE_SERVICE_ACCOUNT_EMAIL=...
+GOOGLE_PRIVATE_KEY="..."
+SPREADSHEET_ID=...
+```
+
+Create `src/workers/.e2e.env` with Jira read credentials:
+
+```dotenv
+JIRA_BASE_URL=https://YOURORG.atlassian.net
+JIRA_EMAIL=you@example.com
+JIRA_API_TOKEN=...
+JIRA_ISSUE_KEY=ABC-123
+```
+
+Use an issue assigned to a sprint. The test temporarily posts a marked
+summary/status value, writes or updates that issue row in the configured
+spreadsheet, then best-effort restores the original issue payload.
+
+Run:
+
+```bash
+cd src/workers
+npm run test:e2e
+```
+
 Set required secrets:
 
 ```bash
