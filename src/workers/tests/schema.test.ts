@@ -55,7 +55,8 @@ describe('JiraWebhookPayloadSchema', () => {
       issue: {
         key: 'ABC-789',
         fields: {
-          customfield_10016: { id: 1, name: 'Sprint 1' },
+          customfield_99999: 'some-unknown-field',
+          customfield_10016: [{ id: 1, name: 'Sprint 1' }],
           customfield_10021: 5,
         },
       },
