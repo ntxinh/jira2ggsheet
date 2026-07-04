@@ -65,6 +65,10 @@ function exitedMessage(child) {
   return `wrangler dev exited before becoming ready (code ${child.exitCode}, signal ${child.signalCode})`;
 }
 
+function hasExited(child) {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
 function startWrangler(port) {
   const child = spawn(
     process.platform === 'win32' ? 'npx.cmd' : 'npx',
@@ -81,14 +85,14 @@ function startWrangler(port) {
 async function waitForWorker(child, localUrl) {
   const started = Date.now();
   while (Date.now() - started < 30000) {
-    if (child.exitCode !== null) {
+    if (hasExited(child)) {
       throw new Error(exitedMessage(child));
     }
     try {
       const res = await fetch(localUrl);
       const text = await res.text();
       if (res.status === 405 && text === 'Method not allowed') {
-        if (child.exitCode !== null) {
+        if (hasExited(child)) {
           throw new Error(exitedMessage(child));
         }
         return;
