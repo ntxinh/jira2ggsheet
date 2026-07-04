@@ -71,9 +71,8 @@ async function waitForWorker(child) {
     try {
       const res = await fetch(LOCAL_URL);
       if (res.status === 405 || res.status === 401 || res.status === 200) return;
-    } catch {
-      await sleep(500);
-    }
+    } catch {}
+    await sleep(500);
   }
   throw new Error('Timed out waiting for wrangler dev');
 }
