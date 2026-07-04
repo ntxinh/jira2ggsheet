@@ -215,11 +215,12 @@ async function findIssueInSheet(env, vars, token, issue, verification) {
 }
 
 async function waitForIssueInSheet(env, vars, issue) {
-  const token = await getGoogleToken(env);
+  let token;
   const verification = issueVerification(issue, vars);
   let lastError;
   for (let i = 0; i < 12; i += 1) {
     try {
+      token ||= await getGoogleToken(env);
       const title = await findIssueInSheet(env, vars, token, issue, verification);
       if (title) return title;
     } catch (err) {
