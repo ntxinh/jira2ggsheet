@@ -70,7 +70,13 @@ async function waitForWorker(child) {
     }
     try {
       const res = await fetch(LOCAL_URL);
-      if (res.status === 405 || res.status === 401 || res.status === 200) return;
+      const text = await res.text();
+      if (res.status === 405 && text === 'Method not allowed') {
+        if (child.exitCode !== null) {
+          throw new Error('wrangler dev exited before becoming ready');
+        }
+        return;
+      }
     } catch {}
     await sleep(500);
   }
