@@ -1,28 +1,52 @@
-import { getConfig, type Env } from './config';
-import { upsertIssue, deleteIssue, withToken } from './sheetWriter';
+import { OpenAPIHono, createRoute } from '@hono/zod-openapi'
+import { apiReference } from '@scalar/hono-api-reference'
+import { getConfig, type Env } from './config'
+import { upsertIssue, deleteIssue, withToken } from './sheetWriter'
+import { JiraWebhookPayloadSchema, WebhookQuerySchema } from './schema'
 
-interface JiraWebhookPayload {
-  webhookEvent: string;
-  issue: {
-    key: string;
-    fields: Record<string, unknown>;
-  };
-}
+const app = new OpenAPIHono<{ Bindings: Env }>()
 
-function handleWebhook(payload: JiraWebhookPayload, env: Env): Promise<void> | null {
+// --- Route spec ---
+
+const webhookRoute = createRoute({
+  method: 'post',
+  path: '/',
+  summary: 'Receive Jira webhook',
+  description: 'Process incoming Jira issue webhook events (created, updated, deleted). Validates token via query parameter.',
+  tags: ['Webhook'],
+  request: {
+    query: WebhookQuerySchema,
+    body: {
+      content: { 'application/json': { schema: JiraWebhookPayloadSchema } },
+    },
+  },
+  responses: {
+    200: { description: 'Webhook acknowledged (ok)' },
+    400: { description: 'Invalid payload body' },
+    401: { description: 'Missing or invalid token' },
+    405: { description: 'Method not allowed' },
+  },
+})
+
+// --- Business logic (preserved from legacy handler) ---
+
+function handleWebhook(
+  payload: { webhookEvent: string; issue: { key: string; fields: Record<string, unknown> } },
+  env: Env,
+): Promise<void> | null {
   if (!payload || !payload.issue || !payload.issue.fields) {
-    console.log('Ignored: payload has no issue');
-    return null;
+    console.log('Ignored: payload has no issue')
+    return null
   }
 
-  const issue = payload.issue;
-  const project = issue.fields.project as { key: string } | undefined;
+  const issue = payload.issue
+  const project = issue.fields.project as { key: string } | undefined
   if (!project || project.key !== env.PROJECT_KEY) {
-    console.log(`Ignored: project ${project?.key ?? 'undefined'} != ${env.PROJECT_KEY}`);
-    return null;
+    console.log(`Ignored: project ${project?.key ?? 'undefined'} != ${env.PROJECT_KEY}`)
+    return null
   }
 
-  const config = getConfig(env);
+  const config = getConfig(env)
 
   switch (payload.webhookEvent) {
     case 'jira:issue_created':
@@ -31,48 +55,61 @@ function handleWebhook(payload: JiraWebhookPayload, env: Env): Promise<void> | n
         env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
         env.GOOGLE_PRIVATE_KEY,
         (token) => upsertIssue(env.SPREADSHEET_ID, issue, token, config),
-      );
+      )
     case 'jira:issue_deleted':
       return withToken(
         env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
         env.GOOGLE_PRIVATE_KEY,
         (token) => deleteIssue(env.SPREADSHEET_ID, issue, token, config),
-      );
+      )
     default:
-      console.log('Ignored: event ' + payload.webhookEvent);
-      return null;
+      console.log('Ignored: event ' + payload.webhookEvent)
+      return null
   }
 }
 
-export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    if (request.method !== 'POST') {
-      return new Response('Method not allowed', { status: 405 });
-    }
+// --- Routes ---
 
-    const url = new URL(request.url);
-    if (url.searchParams.get('token') !== env.SECRET_TOKEN) {
-      console.log('Webhook rejected: bad or missing token');
-      return new Response('unauthorized', { status: 401 });
-    }
+app.openapi(webhookRoute, async (c) => {
+  const { token } = c.req.valid('query')
+  if (!token || token !== c.env.SECRET_TOKEN) {
+    console.log('Webhook rejected: bad or missing token')
+    return c.text('unauthorized', 401)
+  }
 
-    let payload: JiraWebhookPayload;
-    try {
-      payload = await request.json<JiraWebhookPayload>();
-    } catch {
-      console.log('Webhook ignored: malformed JSON');
-      return new Response('ok');
-    }
+  const payload = c.req.valid('json')
 
-    try {
-      const work = handleWebhook(payload, env);
-      if (work) {
-        ctx.waitUntil(work.catch((err) => console.error('Handler failed: ' + err)));
-      }
-    } catch (err) {
-      console.log('Webhook handler error: ' + err);
+  try {
+    const work = handleWebhook(payload, c.env)
+    if (work) {
+      const safe = work.catch((err) => console.error('Handler failed: ' + err))
+      c.executionCtx?.waitUntil(safe)
     }
+  } catch (err) {
+    console.log('Webhook handler error: ' + err)
+  }
 
-    return new Response('ok');
-  },
-};
+  return c.text('ok')
+})
+
+// Explicit 405 for non-POST requests to /
+app.on(['GET', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'], '/', (c) => {
+  return c.text('Method not allowed', 405)
+})
+
+// OpenAPI spec endpoint
+app.get('/openapi.json', (c) => {
+  return c.json(app.getOpenAPIDocument({
+    openapi: '3.1.0',
+    info: {
+      title: 'Jira to Google Sheets Webhook',
+      version: '1.0.0',
+      description: 'Webhook receiver that syncs Jira issues to Google Sheets',
+    },
+  }))
+})
+
+// Scalar API docs UI
+app.get('/docs', apiReference({ spec: { url: '/openapi.json' } }))
+
+export default app
