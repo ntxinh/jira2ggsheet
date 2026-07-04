@@ -163,18 +163,38 @@ function sheetsGet(token, url) {
   });
 }
 
-function issueVerification(issue, vars) {
+function verificationField(vars) {
   const columns = JSON.parse(vars.COLUMN_MAP_JSON || '{}');
   const summaryColumn = Object.keys(columns).find((column) => columns[column] === 'summary');
   if (summaryColumn) {
-    return { column: summaryColumn, expected: String(issue.fields.summary ?? '') };
+    return { field: 'summary', column: summaryColumn };
   }
   const statusColumn = Object.keys(columns).find((column) => columns[column] === 'status');
   if (statusColumn) {
-    return { column: statusColumn, expected: issue.fields.status?.name ?? '' };
+    return { field: 'status', column: statusColumn };
   }
-  console.warn('No summary/status column mapped; falling back to key-only Sheets verification');
-  return null;
+  throw new Error('COLUMN_MAP_JSON must map summary or status for e2e marker verification');
+}
+
+function issueWithMarker(issue, field) {
+  const marker = ` [e2e ${Date.now()}]`;
+  const markedIssue = {
+    ...issue,
+    fields: {
+      ...issue.fields,
+    },
+  };
+  if (field.field === 'summary') {
+    const value = String(issue.fields.summary ?? '') + marker;
+    markedIssue.fields.summary = value;
+    return { issue: markedIssue, verification: { column: field.column, expected: value } };
+  }
+  const value = (issue.fields.status?.name ?? '') + marker;
+  markedIssue.fields.status = {
+    ...(issue.fields.status || {}),
+    name: value,
+  };
+  return { issue: markedIssue, verification: { column: field.column, expected: value } };
 }
 
 async function findIssueInSheet(env, vars, token, issue, verification) {
@@ -195,9 +215,6 @@ async function findIssueInSheet(env, vars, token, issue, verification) {
       .map((row, index) => (row[0] === issueKey ? index : -1))
       .filter((index) => index !== -1);
     if (!rowIndexes.length) continue;
-    if (!verification) {
-      return title;
-    }
     const verifyRange = encodeURIComponent(`${title}!${verification.column}:${verification.column}`);
     const verifyData = await sheetsGet(
       token,
@@ -214,9 +231,8 @@ async function findIssueInSheet(env, vars, token, issue, verification) {
   return null;
 }
 
-async function waitForIssueInSheet(env, vars, issue) {
+async function waitForIssueInSheet(env, vars, issue, verification) {
   let token;
-  const verification = issueVerification(issue, vars);
   let lastError;
   for (let i = 0; i < 12; i += 1) {
     try {
@@ -350,8 +366,21 @@ async function main() {
   try {
     await waitForWorker(child, localUrl);
     const issue = await fetchJiraIssue(env);
-    await postWebhook(env, issue, localUrl);
-    const sheetTitle = await waitForIssueInSheet(env, env, issue);
+    const { issue: markedIssue, verification } = issueWithMarker(issue, verificationField(env));
+    let sheetTitle;
+    let verifyError;
+    await postWebhook(env, markedIssue, localUrl);
+    try {
+      sheetTitle = await waitForIssueInSheet(env, env, markedIssue, verification);
+    } catch (err) {
+      verifyError = err;
+    }
+    try {
+      await postWebhook(env, issue, localUrl);
+    } catch (err) {
+      console.warn(`Failed to restore original issue after e2e marker: ${err.message}`);
+    }
+    if (verifyError) throw verifyError;
     console.log(`PASS e2e: ${issue.key} found in ${sheetTitle}`);
   } finally {
     await stopWrangler(child);
