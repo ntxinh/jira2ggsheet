@@ -163,8 +163,22 @@ function sheetsGet(token, url) {
   });
 }
 
-async function findIssueInSheet(env, vars, issueKey) {
-  const token = await getGoogleToken(env);
+function issueVerification(issue, vars) {
+  const columns = JSON.parse(vars.COLUMN_MAP_JSON || '{}');
+  const summaryColumn = Object.keys(columns).find((column) => columns[column] === 'summary');
+  if (summaryColumn) {
+    return { column: summaryColumn, expected: String(issue.fields.summary ?? '') };
+  }
+  const statusColumn = Object.keys(columns).find((column) => columns[column] === 'status');
+  if (statusColumn) {
+    return { column: statusColumn, expected: issue.fields.status?.name ?? '' };
+  }
+  console.warn('No summary/status column mapped; falling back to key-only Sheets verification');
+  return null;
+}
+
+async function findIssueInSheet(env, vars, token, issue, verification) {
+  const issueKey = issue.key;
   const id = encodeURIComponent(env.SPREADSHEET_ID);
   const metadata = await sheetsGet(token, `https://sheets.googleapis.com/v4/spreadsheets/${id}`);
   const titles = (metadata.sheets || [])
@@ -173,24 +187,48 @@ async function findIssueInSheet(env, vars, issueKey) {
 
   for (const title of titles) {
     const range = encodeURIComponent(`${title}!${vars.KEY_COLUMN}:${vars.KEY_COLUMN}`);
-    const data = await sheetsGet(
+    const keyData = await sheetsGet(
       token,
       `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${range}`,
     );
-    if ((data.values || []).some((row) => row[0] === issueKey)) {
+    const rowIndexes = (keyData.values || [])
+      .map((row, index) => (row[0] === issueKey ? index : -1))
+      .filter((index) => index !== -1);
+    if (!rowIndexes.length) continue;
+    if (!verification) {
+      return title;
+    }
+    const verifyRange = encodeURIComponent(`${title}!${verification.column}:${verification.column}`);
+    const verifyData = await sheetsGet(
+      token,
+      `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${verifyRange}`,
+    );
+    if (
+      rowIndexes.some(
+        (rowIndex) => String((verifyData.values || [])[rowIndex]?.[0] ?? '') === verification.expected,
+      )
+    ) {
       return title;
     }
   }
   return null;
 }
 
-async function waitForIssueInSheet(env, vars, issueKey) {
+async function waitForIssueInSheet(env, vars, issue) {
+  const token = await getGoogleToken(env);
+  const verification = issueVerification(issue, vars);
+  let lastError;
   for (let i = 0; i < 12; i += 1) {
-    const title = await findIssueInSheet(env, vars, issueKey);
-    if (title) return title;
+    try {
+      const title = await findIssueInSheet(env, vars, token, issue, verification);
+      if (title) return title;
+    } catch (err) {
+      lastError = err;
+    }
     await sleep(2500);
   }
-  throw new Error(`Issue key ${issueKey} not found in sprint sheets`);
+  if (lastError) throw lastError;
+  throw new Error(`Issue key ${issue.key} not found in sprint sheets`);
 }
 
 function exitedMessage(child) {
@@ -312,7 +350,7 @@ async function main() {
     await waitForWorker(child, localUrl);
     const issue = await fetchJiraIssue(env);
     await postWebhook(env, issue, localUrl);
-    const sheetTitle = await waitForIssueInSheet(env, env, issue.key);
+    const sheetTitle = await waitForIssueInSheet(env, env, issue);
     console.log(`PASS e2e: ${issue.key} found in ${sheetTitle}`);
   } finally {
     await stopWrangler(child);
