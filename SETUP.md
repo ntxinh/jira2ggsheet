@@ -60,6 +60,9 @@ GOOGLE_PRIVATE_KEY="..."
 SPREADSHEET_ID=...
 ```
 
+Keep escaped `\n` line breaks in `GOOGLE_PRIVATE_KEY` when storing it on one
+line.
+
 Create `src/workers/.e2e.env` with Jira read credentials:
 
 ```dotenv
@@ -71,7 +74,9 @@ JIRA_ISSUE_KEY=ABC-123
 
 Use an issue assigned to a sprint. The test temporarily posts a marked
 summary/status value, writes or updates that issue row in the configured
-spreadsheet, then best-effort restores the original issue payload.
+spreadsheet, then best-effort posts the original payload again to restore the
+spreadsheet row. `COLUMN_MAP_JSON` must include either `summary` or `status` for
+marker verification.
 
 Run:
 
