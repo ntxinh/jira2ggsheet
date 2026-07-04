@@ -145,7 +145,7 @@ Write `src/workers/schema.ts`:
 import { z } from '@hono/zod-openapi'
 
 const JiraProjectSchema = z.object({
-  key: z.string().openapi({ example: 'CPQ1' }),
+  key: z.string().openapi({ example: 'ABC' }),
 }).openapi('JiraProject')
 
 const JiraIssueTypeSchema = z.object({
@@ -175,7 +175,7 @@ const JiraIssueFieldsSchema = z.object({
 }).passthrough().openapi('JiraIssueFields')
 
 const JiraIssueSchema = z.object({
-  key: z.string().openapi({ example: 'CPQ1-123' }),
+  key: z.string().openapi({ example: 'ABC-123' }),
   fields: JiraIssueFieldsSchema,
 }).openapi('JiraIssue')
 
@@ -203,14 +203,14 @@ describe('JiraWebhookPayloadSchema', () => {
   it('accepts a valid minimal payload', () => {
     const payload = {
       webhookEvent: 'jira:issue_created',
-      issue: { key: 'CPQ1-123', fields: {} },
+      issue: { key: 'ABC-123', fields: {} },
     }
     const result = JiraWebhookPayloadSchema.safeParse(payload)
     expect(result.success).toBe(true)
   })
 
   it('rejects payload without webhookEvent', () => {
-    const payload = { issue: { key: 'CPQ1-123', fields: {} } }
+    const payload = { issue: { key: 'ABC-123', fields: {} } }
     const result = JiraWebhookPayloadSchema.safeParse(payload)
     expect(result.success).toBe(false)
   })
@@ -231,9 +231,9 @@ describe('JiraWebhookPayloadSchema', () => {
     const payload = {
       webhookEvent: 'jira:issue_updated',
       issue: {
-        key: 'CPQ1-456',
+        key: 'ABC-456',
         fields: {
-          project: { key: 'CPQ1' },
+          project: { key: 'ABC' },
           issuetype: { name: 'Story' },
           priority: { name: 'Medium' },
           summary: 'Test summary',
@@ -251,7 +251,7 @@ describe('JiraWebhookPayloadSchema', () => {
     const payload = {
       webhookEvent: 'jira:issue_deleted',
       issue: {
-        key: 'CPQ1-789',
+        key: 'ABC-789',
         fields: {
           customfield_10016: { id: 1, name: 'Sprint 1' },
           customfield_10021: 5,

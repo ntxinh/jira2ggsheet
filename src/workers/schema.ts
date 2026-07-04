@@ -1,7 +1,7 @@
 import { z } from '@hono/zod-openapi'
 
 const JiraProjectSchema = z.object({
-  key: z.string().openapi({ example: 'CPQ1' }),
+  key: z.string().openapi({ example: 'ABC' }),
 }).openapi('JiraProject')
 
 const JiraIssueTypeSchema = z.object({
@@ -31,7 +31,7 @@ const JiraIssueFieldsSchema = z.object({
 }).passthrough().openapi('JiraIssueFields')
 
 const JiraIssueSchema = z.object({
-  key: z.string().openapi({ example: 'CPQ1-123' }),
+  key: z.string().openapi({ example: 'ABC-123' }),
   fields: JiraIssueFieldsSchema,
 }).openapi('JiraIssue')
 
