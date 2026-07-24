@@ -14,5 +14,5 @@ export const testEnv: Env = {
   DATE_FORMAT: 'yyyy-MM-dd',
   CUSTOM_FIELDS_SPRINT: 'customfield_10016',
   CUSTOM_FIELDS_STORY_POINTS: 'customfield_10021',
-  COLUMN_MAP_JSON: '{"A":"sprintId","C":"issueKey"}',
+  COLUMN_MAP_JSON: '{"B":"issueKey","L":"labels"}',
 }

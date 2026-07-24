@@ -100,6 +100,7 @@ export const EXTRACTORS: Record<string, (issue: JiraIssue, config: Config) => st
     return v == null ? '' : String(v);
   },
   assignee: (issue) => (issue.fields.assignee as Record<string, unknown> | undefined)?.displayName as string ?? '',
+  labels: (issue) => ((issue.fields.labels as string[]) ?? []).join(', '),
   sprintId: (issue, config) => pickSprintId(issue.fields[config.CUSTOM_FIELDS.sprint]),
 };
 

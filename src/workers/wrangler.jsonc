@@ -15,6 +15,6 @@
     "DATE_FORMAT": "yyyy-MM-dd HH:mm",
     "CUSTOM_FIELDS_SPRINT": "customfield_10016",
     "CUSTOM_FIELDS_STORY_POINTS": "customfield_10021",
-    "COLUMN_MAP_JSON": "{\"A\":\"sprintId\",\"C\":\"issueKey\",\"D\":\"issueType\",\"E\":\"priority\",\"F\":\"summary\",\"G\":\"status\",\"L\":\"createdDate\",\"P\":\"storyPoints\",\"U\":\"assignee\"}"
+    "COLUMN_MAP_JSON": "{\"B\":\"issueKey\",\"D\":\"issueType\",\"E\":\"priority\",\"F\":\"summary\",\"G\":\"status\",\"M\":\"createdDate\",\"K\":\"storyPoints\",\"H\":\"assignee\",\"L\":\"labels\"}"
   }
 }
