@@ -8,8 +8,8 @@
   "vars": {
     "PROJECT_KEY": "ABC",
     "TEMPLATE_SHEET": "Template",
-    "KEY_COLUMN": "C",
-    "HEADER_ROWS": "1",
+    "KEY_COLUMN": "B",
+    "HEADER_ROWS": "3",
     "DELETE_MODE": "delete",
     "TIMEZONE": "Asia/Ho_Chi_Minh",
     "DATE_FORMAT": "yyyy-MM-dd HH:mm",
