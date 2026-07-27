@@ -46,3 +46,5 @@ npm run dev                     # wrangler dev (local dev server)
 npm run typecheck               # tsc --noEmit
 npm run deploy                  # wrangler deploy
 ```
+
+- http://localhost:3000/docs
