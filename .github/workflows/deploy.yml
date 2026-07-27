@@ -3,8 +3,13 @@ name: Deploy
 on:
   push:
     branches: [main]
+    paths:
+      - 'src/workers/**'
   pull_request:
     branches: [main]
+    paths:
+      - 'src/workers/**'
+  workflow_dispatch:
 
 jobs:
   ci:
@@ -17,6 +22,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          # node-version-file: '.node-version'
           cache: npm
           cache-dependency-path: src/workers/package-lock.json
       - run: npm ci
