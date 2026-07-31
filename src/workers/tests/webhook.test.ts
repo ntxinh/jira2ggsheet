@@ -1,6 +1,23 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import index from '../index'
 import { testEnv } from './mock-env'
+import { searchIssues } from '../jira'
+import { upsertIssue } from '../sheetWriter'
+
+vi.mock('../jira', () => ({ searchIssues: vi.fn() }))
+vi.mock('../sheetWriter', () => ({
+  upsertIssue: vi.fn().mockResolvedValue(undefined),
+  withToken: vi.fn((_email: string, _key: string, fn: (token: string) => Promise<void>) => fn('token')),
+  deleteIssue: vi.fn(),
+  getOrCreateSprintSheet: vi.fn(),
+}))
+
+const searchIssuesMock = vi.mocked(searchIssues)
+const upsertIssueMock = vi.mocked(upsertIssue)
+
+afterEach(() => {
+  vi.clearAllMocks()
+})
 
 describe('POST / — Jira webhook', () => {
   it('returns 401 when token query param is missing', async () => {
@@ -121,26 +138,12 @@ describe('GET /docs', () => {
   })
 })
 
-import { searchIssues } from '../jira'
-import { upsertIssue } from '../sheetWriter'
-import { vi, afterEach } from 'vitest'
-
-vi.mock('../jira', () => ({ searchIssues: vi.fn() }))
-vi.mock('../sheetWriter', () => ({ upsertIssue: vi.fn().mockResolvedValue(undefined), withToken: vi.fn((_email: string, _key: string, fn: (token: string) => Promise<void>) => fn('token')), deleteIssue: vi.fn(), getOrCreateSprintSheet: vi.fn() }))
-
-const searchIssuesMock = vi.mocked(searchIssues)
-const upsertIssueMock = vi.mocked(upsertIssue)
-
-afterEach(() => {
-  vi.clearAllMocks()
-})
-
 describe('scheduled — sprint cron sync', () => {
   it('runs JQL search and upserts each issue, tolerating per-issue failure', async () => {
     searchIssuesMock.mockResolvedValue([
       { key: 'ABC-1', fields: {} },
       { key: 'ABC-2', fields: {} },
-    ] as never)
+    ])
     upsertIssueMock.mockRejectedValueOnce(new Error('sheets down'))
 
     const module = await import('../index')

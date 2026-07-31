@@ -118,17 +118,19 @@ async function syncSprint(_controller: ScheduledController, env: Env): Promise<v
   const jql = `project = ${config.PROJECT_KEY} AND sprint = ${config.SPRINT_ID} ORDER BY created ASC`
   const issues = await searchIssues(jql, config.JIRA_SUBDOMAIN, env.JIRA_EMAIL, env.JIRA_API_TOKEN)
   // ponytail: upsertIssue picks the tab by the issue's sprint field (active/last), same rule as the webhook. An issue in two active sprints may land elsewhere — accepted.
-  for (const issue of issues) {
-    try {
-      await withToken(
-        env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-        env.GOOGLE_PRIVATE_KEY,
-        (token) => upsertIssue(env.SPREADSHEET_ID, issue, token, config),
-      )
-    } catch (err) {
-      console.error(`Sprint sync failed for ${issue.key}: ${err}`)
-    }
-  }
+  await withToken(
+    env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    env.GOOGLE_PRIVATE_KEY,
+    async (token) => {
+      for (const issue of issues) {
+        try {
+          await upsertIssue(env.SPREADSHEET_ID, issue, token, config)
+        } catch (err) {
+          console.error(`Sprint sync failed for ${issue.key}: ${err}`)
+        }
+      }
+    },
+  )
 }
 
 export default {

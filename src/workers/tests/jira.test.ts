@@ -2,6 +2,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { searchIssues } from '../jira'
 import type { JiraIssue } from '../fieldExtractor'
 
+const PAGE_SIZE = 100
+
 const issue = (key: string): JiraIssue => ({ key, fields: { summary: key } })
 
 afterEach(() => { vi.unstubAllGlobals() })
@@ -13,7 +15,7 @@ describe('searchIssues', () => {
       calls.push({ url, headers: (init?.headers ?? {}) as Record<string, string> })
       const startAt = Number(new URL(url).searchParams.get('startAt'))
       const total = 150
-      const issues = Array.from({ length: 100 }, (_, i) => issue(`ABC-${startAt + i + 1}`))
+      const issues = Array.from({ length: Math.min(PAGE_SIZE, total - startAt) }, (_, i) => issue(`ABC-${startAt + i + 1}`))
       return new Response(JSON.stringify({ issues, total }))
     }))
 
@@ -21,14 +23,15 @@ describe('searchIssues', () => {
 
     expect(calls.length).toBe(2)
     expect(calls[0].url).toContain('https://acme.atlassian.net/rest/api/3/search/jql')
+    expect(calls[0].url).toContain('startAt=0')
     expect(calls[0].url).toContain('fields=*all')
     expect(calls[0].url).toContain('maxResults=100')
     expect(calls[0].url).toContain('jql=project%20%3D%20ABC%20ORDER%20BY%20created%20ASC')
     expect(calls[0].headers.Authorization).toBe('Basic ' + btoa('me@x.com:tok'))
     expect(calls[1].url).toContain('startAt=100')
-    expect(result.length).toBe(200)
+    expect(result.length).toBe(150)
     expect(result[0].key).toBe('ABC-1')
-    expect(result[199].key).toBe('ABC-200')
+    expect(result[149].key).toBe('ABC-150')
   })
 
   it('throws on non-OK response', async () => {
