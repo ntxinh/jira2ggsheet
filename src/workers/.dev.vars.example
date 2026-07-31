@@ -2,3 +2,6 @@ SECRET_TOKEN=change-me-to-a-random-string
 GOOGLE_SERVICE_ACCOUNT_EMAIL=your-service-account@project.iam.gserviceaccount.com
 GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC...\n-----END PRIVATE KEY-----\n"
 SPREADSHEET_ID=your-google-sheet-id
+JIRA_EMAIL=your-jira-email@example.com
+JIRA_API_TOKEN=your-atlassian-api-token
+SPRINT_ID=42
