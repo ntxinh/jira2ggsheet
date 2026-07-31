@@ -5,6 +5,8 @@ export interface Config {
   HEADER_ROWS: number;
   DELETE_MODE: 'delete' | 'mark';
   PROJECT_KEY: string;
+  SPRINT_ID: string;
+  JIRA_SUBDOMAIN: string;
   COLUMN_MAP: Record<string, string>;
   CUSTOM_FIELDS: {
     sprint: string;
@@ -20,6 +22,10 @@ export interface Env {
   GOOGLE_PRIVATE_KEY: string;
   SPREADSHEET_ID: string;
   PROJECT_KEY: string;
+  SPRINT_ID: string;
+  JIRA_EMAIL: string;
+  JIRA_API_TOKEN: string;
+  JIRA_SUBDOMAIN: string;
   TEMPLATE_SHEET: string;
   KEY_COLUMN: string;
   HEADER_ROWS: string;
@@ -39,6 +45,8 @@ export function getConfig(env: Env): Config {
     HEADER_ROWS: parseInt(env.HEADER_ROWS, 10),
     DELETE_MODE: env.DELETE_MODE as 'delete' | 'mark',
     PROJECT_KEY: env.PROJECT_KEY,
+    SPRINT_ID: env.SPRINT_ID,
+    JIRA_SUBDOMAIN: env.JIRA_SUBDOMAIN,
     COLUMN_MAP: JSON.parse(env.COLUMN_MAP_JSON),
     CUSTOM_FIELDS: {
       sprint: env.CUSTOM_FIELDS_SPRINT,

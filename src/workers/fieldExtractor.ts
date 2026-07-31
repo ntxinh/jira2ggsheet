@@ -88,7 +88,7 @@ export interface JiraIssue {
   fields: Record<string, unknown>;
 }
 
-export const EXTRACTORS: Record<string, (issue: JiraIssue, config: Config) => string> = {
+export const EXTRACTORS: Record<string, (issue: JiraIssue, config: Config, row: number) => string> = {
   issueKey: (issue) => issue.key,
   issueType: (issue) => (issue.fields.issuetype as Record<string, unknown> | undefined)?.name as string ?? '',
   priority: (issue) => (issue.fields.priority as Record<string, unknown> | undefined)?.name as string ?? '',
@@ -102,16 +102,20 @@ export const EXTRACTORS: Record<string, (issue: JiraIssue, config: Config) => st
   assignee: (issue) => (issue.fields.assignee as Record<string, unknown> | undefined)?.displayName as string ?? '',
   labels: (issue) => ((issue.fields.labels as string[]) ?? []).join(', '),
   sprintId: (issue, config) => pickSprintId(issue.fields[config.CUSTOM_FIELDS.sprint]),
+  issueLink: (issue, config, row) => {
+    const key = `$${config.KEY_COLUMN}${row}`;
+    return `=IF(${key}<>"",HYPERLINK(CONCATENATE("https://${config.JIRA_SUBDOMAIN}.atlassian.net/browse/",${key}),${key}),"")`;
+  },
 };
 
-export function extractField(name: string, issue: JiraIssue, config: Config): string {
+export function extractField(name: string, issue: JiraIssue, config: Config, row: number): string {
   const fn = EXTRACTORS[name];
   if (!fn) {
     console.log('Unknown extractor in COLUMN_MAP: ' + name);
     return '';
   }
   try {
-    const value = fn(issue, config);
+    const value = fn(issue, config, row);
     return value == null ? '' : String(value);
   } catch (err) {
     console.log('Extractor "' + name + '" failed: ' + err);
