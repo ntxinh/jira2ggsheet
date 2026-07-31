@@ -6,6 +6,7 @@ export const testEnv: Env = {
   GOOGLE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nMOCK\n-----END PRIVATE KEY-----',
   SPREADSHEET_ID: 'fake-spreadsheet-id',
   PROJECT_KEY: 'TEST',
+  JIRA_SUBDOMAIN: 'acme',
   TEMPLATE_SHEET: 'Template',
   KEY_COLUMN: 'C',
   HEADER_ROWS: '1',
@@ -14,5 +15,5 @@ export const testEnv: Env = {
   DATE_FORMAT: 'yyyy-MM-dd',
   CUSTOM_FIELDS_SPRINT: 'customfield_10016',
   CUSTOM_FIELDS_STORY_POINTS: 'customfield_10021',
-  COLUMN_MAP_JSON: '{"B":"issueKey","L":"labels"}',
+  COLUMN_MAP_JSON: '{"B":"issueKey","C":"issueLink","L":"labels"}',
 }

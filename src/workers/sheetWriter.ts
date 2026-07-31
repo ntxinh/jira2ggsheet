@@ -117,11 +117,11 @@ function findRowIndex(values: string[], issueKey: string, headerRows: number): n
   return null;
 }
 
-function buildRowMap(issue: JiraIssue, config: Config): Map<number, string> {
+function buildRowMap(issue: JiraIssue, config: Config, row: number): Map<number, string> {
   const map = new Map<number, string>();
   for (const [letter, fieldName] of Object.entries(config.COLUMN_MAP)) {
     const col = columnLetterToIndex(letter);
-    map.set(col, extractField(fieldName, issue, config));
+    map.set(col, extractField(fieldName, issue, config, row));
   }
   return map;
 }
@@ -224,7 +224,7 @@ export async function upsertIssue(
     row = Math.max(keyCol.length, config.HEADER_ROWS) + 1;
   }
 
-  const colMap = buildRowMap(issue, config);
+  const colMap = buildRowMap(issue, config, row);
   await writeRowRange(spreadsheetId, sheet.title, row, colMap, token);
 }
 
