@@ -1,3 +1,4 @@
+import { DurableObject } from 'cloudflare:workers'
 import * as Sentry from '@sentry/cloudflare'
 import { getConfig, type Config, type Env } from './config'
 import { searchIssuesPage } from './jira'
@@ -42,19 +43,15 @@ function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } })
 }
 
-// The platform injects the runtime DurableObject base class; extending it here would break under
-// vitest (no runtime value for the global type). Instead the class carries its own ctx/env and
-// implements the RPC brand so DurableObjectNamespace<SyncCoordinator> types the RPC methods.
-export class SyncCoordinator implements Rpc.DurableObjectBranded {
-  declare [Rpc.__DURABLE_OBJECT_BRAND]: never
-
+// Extending the runtime DurableObject base class (from the workerd-only module 'cloudflare:workers')
+// is REQUIRED for RPC — the platform refuses stubs that don't. vitest resolves that module to a
+// stub via resolve.alias in vitest.config.ts, so tests instantiate this class directly.
+export class SyncCoordinator extends DurableObject<Env> {
   private readonly config: Config
 
-  constructor(
-    private readonly ctx: DurableObjectState,
-    private readonly env: Env,
-  ) {
-    this.config = getConfig(this.env)
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+    this.config = getConfig(env)
   }
 
   async fetch(request: Request): Promise<Response> {
