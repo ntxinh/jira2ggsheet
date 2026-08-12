@@ -11,15 +11,16 @@ export async function searchIssues(
   const base = `https://${subdomain}.atlassian.net/rest/api/3/search/jql`
   const auth = 'Basic ' + btoa(`${email}:${apiToken}`)
   const issues: JiraIssue[] = []
-  let startAt = 0
+  let nextPageToken: string | undefined
   for (;;) {
-    const url = `${base}?jql=${encodeURIComponent(jql)}&fields=*all&maxResults=${PAGE_SIZE}&startAt=${startAt}`
+    let url = `${base}?jql=${encodeURIComponent(jql)}&fields=*all&maxResults=${PAGE_SIZE}`
+    if (nextPageToken) url += `&nextPageToken=${encodeURIComponent(nextPageToken)}`
     const res = await fetch(url, { headers: { Authorization: auth } })
     if (!res.ok) throw new Error(`Jira search ${res.status}: ${await res.text()}`)
-    const data = (await res.json()) as { issues?: JiraIssue[]; total?: number }
+    const data = (await res.json()) as { issues?: JiraIssue[]; nextPageToken?: string; isLast?: boolean }
     issues.push(...(data.issues ?? []))
-    startAt += PAGE_SIZE
-    if (startAt >= (data.total ?? startAt)) break
+    if (data.isLast || !data.nextPageToken) break
+    nextPageToken = data.nextPageToken
   }
   return issues
 }
