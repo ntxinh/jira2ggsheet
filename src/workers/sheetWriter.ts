@@ -42,10 +42,10 @@ async function getOrCreateSprintSheet(
   sprint: Sprint,
   token: string,
   config: Config,
+  sheets: SheetInfo[],
 ): Promise<SheetInfo> {
   const target = sprintSheetName(sprint);
   const prefix = sprint.id + '_';
-  const sheets = await getSheets(spreadsheetId, token);
 
   for (const sheet of sheets) {
     if (sheet.title === config.TEMPLATE_SHEET) continue;
@@ -96,18 +96,25 @@ async function getOrCreateSprintSheet(
   };
 }
 
-async function readColumn(
+async function readKeyColumns(
   spreadsheetId: string,
-  sheetTitle: string,
+  sheetTitles: string[],
   column: string,
   token: string,
-): Promise<string[]> {
-  const range = encodeURIComponent(`${sheetTitle}!${column}:${column}`);
+): Promise<Map<string, string[]>> {
+  const params = new URLSearchParams();
+  for (const t of sheetTitles) {
+    params.append('ranges', `${t}!${column}:${column}`);
+  }
   const data = await apiFetch(
     token,
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
-  ).catch(() => ({ values: [] as string[][] })) as { values?: string[][] };
-  return (data.values ?? []).map(r => r[0] ?? '');
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?${params}`,
+  ).catch(() => ({ valueRanges: [] as unknown[] })) as { valueRanges?: Array<{ values?: string[][] }> };
+  const map = new Map<string, string[]>();
+  sheetTitles.forEach((title, i) => {
+    map.set(title, (data.valueRanges?.[i]?.values ?? []).map(r => r[0] ?? ''));
+  });
+  return map;
 }
 
 function findRowIndex(values: string[], issueKey: string, headerRows: number): number | null {
@@ -204,21 +211,23 @@ export async function upsertIssue(
     return;
   }
 
-  const sheet = await getOrCreateSprintSheet(spreadsheetId, sprint, token, config);
-
   const allSheets = await getSheets(spreadsheetId, token);
-  for (const s of allSheets) {
-    if (s.title === config.TEMPLATE_SHEET) continue;
-    if (!/^\d+_/.test(s.title)) continue;
-    if (s.sheetId === sheet.sheetId) continue;
-    const keyCol = await readColumn(spreadsheetId, s.title, config.KEY_COLUMN, token);
-    const row = findRowIndex(keyCol, issue.key, config.HEADER_ROWS);
+  const sheet = await getOrCreateSprintSheet(spreadsheetId, sprint, token, config, allSheets);
+
+  const others = allSheets.filter(
+    (s) => s.title !== config.TEMPLATE_SHEET && /^\d+_/.test(s.title) && s.sheetId !== sheet.sheetId,
+  );
+  const targets = [...others.map((s) => s.title), sheet.title];
+  const keyCols = await readKeyColumns(spreadsheetId, targets, config.KEY_COLUMN, token);
+
+  for (const s of others) {
+    const row = findRowIndex(keyCols.get(s.title) ?? [], issue.key, config.HEADER_ROWS);
     if (row !== null) {
       await deleteRowByIndex(spreadsheetId, s.sheetId, row, token);
     }
   }
 
-  const keyCol = await readColumn(spreadsheetId, sheet.title, config.KEY_COLUMN, token);
+  const keyCol = keyCols.get(sheet.title) ?? [];
   let row = findRowIndex(keyCol, issue.key, config.HEADER_ROWS);
   if (row === null) {
     row = Math.max(keyCol.length, config.HEADER_ROWS) + 1;
@@ -236,11 +245,17 @@ export async function deleteIssue(
 ): Promise<void> {
   const sheets = await getSheets(spreadsheetId, token);
 
-  for (const s of sheets) {
-    if (s.title === config.TEMPLATE_SHEET) continue;
-    if (!/^\d+_/.test(s.title)) continue;
-    const keyCol = await readColumn(spreadsheetId, s.title, config.KEY_COLUMN, token);
-    const row = findRowIndex(keyCol, issue.key, config.HEADER_ROWS);
+  const targets = sheets.filter((s) => s.title !== config.TEMPLATE_SHEET && /^\d+_/.test(s.title));
+  if (targets.length === 0) return;
+  const keyCols = await readKeyColumns(
+    spreadsheetId,
+    targets.map((s) => s.title),
+    config.KEY_COLUMN,
+    token,
+  );
+
+  for (const s of targets) {
+    const row = findRowIndex(keyCols.get(s.title) ?? [], issue.key, config.HEADER_ROWS);
     if (row === null) continue;
 
     if (config.DELETE_MODE === 'delete') {
