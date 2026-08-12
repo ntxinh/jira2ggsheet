@@ -66,7 +66,7 @@ npx wrangler secret put SPREADSHEET_ID
 # Paste: the ID from step 1
 
 npx wrangler secret put SENTRY_DSN
-# Paste: https://660a1d71d1c0c899f5fe3deb29fa3734@o4511895609475072.ingest.us.sentry.io/4511895614980096
+# Paste: https://PLACEHOLDER_1@PLACEHOLDER_2.ingest.us.sentry.io/PLACEHOLDER_3
 ```
 
 Adjust variables in the Cloudflare dashboard (Settings → Variables):

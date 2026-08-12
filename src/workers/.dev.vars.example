@@ -17,7 +17,7 @@ DATE_FORMAT=yyyy-MM-dd HH:mm
 CUSTOM_FIELDS_SPRINT=customfield_10016
 CUSTOM_FIELDS_STORY_POINTS=customfield_10021
 COLUMN_MAP_JSON={"B":"issueKey","C":"issueLink","D":"issueType","E":"priority","F":"summary","G":"status","M":"createdDate","K":"storyPoints","H":"assignee","L":"labels"}
-SPRINT_ID=42
+SPRINT_ID=690
 
 # Optional: ms to wait between upserts during a cron/manual sync chunk (default 4000). Keeps
 # Sheets reads+writes under the 60 req/min per-user quota; only lower it if you have headroom.
