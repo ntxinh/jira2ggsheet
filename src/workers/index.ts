@@ -4,7 +4,7 @@ import * as Sentry from '@sentry/cloudflare'
 import { getConfig, type Env } from './config'
 import { searchIssues } from './jira'
 import { upsertIssue, deleteIssue, withToken } from './sheetWriter'
-import { JiraWebhookPayloadSchema, WebhookQuerySchema } from './schema'
+import { JiraWebhookPayloadSchema, WebhookQuerySchema, SyncQuerySchema } from './schema'
 
 const app = new OpenAPIHono<{ Bindings: Env }>()
 
@@ -27,6 +27,21 @@ const webhookRoute = createRoute({
     400: { description: 'Invalid payload body' },
     401: { description: 'Missing or invalid token' },
     405: { description: 'Method not allowed' },
+  },
+})
+
+const syncRoute = createRoute({
+  method: 'get',
+  path: '/sync',
+  summary: 'Manually trigger sprint sync',
+  description: 'Upserts every issue in a sprint into its per-sprint tab. Pass sprintId as a query param, or omit it to use the configured SPRINT_ID.',
+  tags: ['Sync'],
+  request: {
+    query: SyncQuerySchema,
+  },
+  responses: {
+    200: { description: 'Sync complete' },
+    500: { description: 'Jira search or sheets failure' },
   },
 })
 
@@ -96,6 +111,18 @@ app.openapi(webhookRoute, async (c) => {
   }
 
   return c.text('ok')
+})
+
+app.openapi(syncRoute, async (c) => {
+  const { sprintId } = c.req.valid('query')
+  const id = sprintId ?? c.env.SPRINT_ID
+  try {
+    return c.json(await syncSprint(id, c.env))
+  } catch (err) {
+    console.error('Manual sync failed: ' + err)
+    Sentry.captureException(err)
+    return c.json({ error: 'sync failed' }, 500)
+  }
 })
 
 // Explicit 405 for non-POST requests to /

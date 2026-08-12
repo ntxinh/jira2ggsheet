@@ -51,5 +51,9 @@ const WebhookQuerySchema = z.object({
   token: z.string().optional().openapi({ description: 'Authentication token for webhook access' }),
 })
 
-export { JiraWebhookPayloadSchema, JiraIssueSchema, JiraIssueFieldsSchema, WebhookQuerySchema }
+const SyncQuerySchema = z.object({
+  sprintId: z.string().optional().openapi({ description: 'Sprint ID to sync. Falls back to SPRINT_ID env var when omitted.' }),
+})
+
+export { JiraWebhookPayloadSchema, JiraIssueSchema, JiraIssueFieldsSchema, WebhookQuerySchema, SyncQuerySchema }
 export type JiraWebhookPayload = z.infer<typeof JiraWebhookPayloadSchema>

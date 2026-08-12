@@ -177,3 +177,43 @@ describe('scheduled — sprint cron sync', () => {
     expect(captureExceptionMock).toHaveBeenCalledWith(expect.any(Error))
   })
 })
+
+describe('GET /sync — manual sprint sync', () => {
+  it('syncs the sprintId from the query param and returns counts', async () => {
+    searchIssuesMock.mockResolvedValue([
+      { key: 'ABC-1', fields: {} },
+      { key: 'ABC-2', fields: {} },
+    ])
+
+    const res = await index.fetch(new Request(new URL('/sync?sprintId=99', 'http://localhost'), { method: 'GET' }), testEnv)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ issuesSynced: 2, issuesFailed: 0 })
+    expect(searchIssuesMock).toHaveBeenCalledWith('project = TEST AND sprint = 99 ORDER BY created ASC', 'acme', 'jira@example.com', 'jira-token')
+  })
+
+  it('falls back to env SPRINT_ID when sprintId omitted', async () => {
+    searchIssuesMock.mockResolvedValue([])
+
+    const res = await index.fetch(new Request(new URL('/sync', 'http://localhost'), { method: 'GET' }), testEnv)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ issuesSynced: 0, issuesFailed: 0 })
+    expect(searchIssuesMock).toHaveBeenCalledWith('project = TEST AND sprint = 42 ORDER BY created ASC', 'acme', 'jira@example.com', 'jira-token')
+  })
+
+  it('counts failed upserts', async () => {
+    searchIssuesMock.mockResolvedValue([{ key: 'ABC-1', fields: {} }])
+    upsertIssueMock.mockRejectedValueOnce(new Error('sheets down'))
+
+    const res = await index.fetch(new Request(new URL('/sync?sprintId=7', 'http://localhost'), { method: 'GET' }), testEnv)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ issuesSynced: 0, issuesFailed: 1 })
+  })
+
+  it('returns 500 when the Jira search fails', async () => {
+    searchIssuesMock.mockRejectedValueOnce(new Error('jira down'))
+
+    const res = await index.fetch(new Request(new URL('/sync?sprintId=7', 'http://localhost'), { method: 'GET' }), testEnv)
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'sync failed' })
+  })
+})
