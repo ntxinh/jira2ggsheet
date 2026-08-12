@@ -1,5 +1,6 @@
 import { OpenAPIHono, createRoute } from '@hono/zod-openapi'
 import { apiReference } from '@scalar/hono-api-reference'
+import * as Sentry from '@sentry/cloudflare'
 import { getConfig, type Env } from './config'
 import { searchIssues } from './jira'
 import { upsertIssue, deleteIssue, withToken } from './sheetWriter'
@@ -83,11 +84,15 @@ app.openapi(webhookRoute, async (c) => {
   try {
     const work = handleWebhook(payload, c.env)
     if (work) {
-      const safe = work.catch((err) => console.error('Handler failed: ' + err))
+      const safe = work.catch((err) => {
+        console.error('Handler failed: ' + err)
+        Sentry.captureException(err)
+      })
       c.executionCtx?.waitUntil(safe)
     }
   } catch (err) {
     console.log('Webhook handler error: ' + err)
+    Sentry.captureException(err)
   }
 
   return c.text('ok')
@@ -127,13 +132,22 @@ async function syncSprint(_controller: ScheduledController, env: Env): Promise<v
           await upsertIssue(env.SPREADSHEET_ID, issue, token, config)
         } catch (err) {
           console.error(`Sprint sync failed for ${issue.key}: ${err}`)
+          Sentry.captureException(err)
         }
       }
     },
   )
 }
 
-export default {
-  fetch: app.fetch,
-  scheduled: syncSprint,
-}
+export default Sentry.withSentry(
+  (env: Env) => ({
+    dsn: env.SENTRY_DSN,
+    enabled: Boolean(env.SENTRY_DSN),
+    tracesSampleRate: 1.0,
+    enableLogs: true,
+  }),
+  {
+    fetch: (request, env, ctx?) => app.fetch(request, env, ctx),
+    scheduled: syncSprint,
+  } satisfies ExportedHandler<Env>,
+)

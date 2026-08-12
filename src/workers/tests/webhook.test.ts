@@ -11,6 +11,14 @@ vi.mock('../sheetWriter', () => ({
   deleteIssue: vi.fn(),
   getOrCreateSprintSheet: vi.fn(),
 }))
+vi.mock('@sentry/cloudflare', () => ({
+  withSentry: (_options: unknown, handler: unknown) => handler,
+  captureException: vi.fn(),
+}))
+
+import { captureException } from '@sentry/cloudflare'
+
+const captureExceptionMock = vi.mocked(captureException)
 
 const searchIssuesMock = vi.mocked(searchIssues)
 const upsertIssueMock = vi.mocked(upsertIssue)
@@ -154,5 +162,18 @@ describe('scheduled — sprint cron sync', () => {
     const jql = 'project = TEST AND sprint = 42 ORDER BY created ASC'
     expect(searchIssuesMock).toHaveBeenCalledWith(jql, 'acme', 'jira@example.com', 'jira-token')
     expect(upsertIssueMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports per-issue failures to Sentry', async () => {
+    searchIssuesMock.mockResolvedValue([{ key: 'ABC-1', fields: {} }])
+    upsertIssueMock.mockRejectedValueOnce(new Error('sheets down'))
+
+    const module = await import('../index')
+    const { scheduled } = module.default as unknown as { scheduled: (c: { cron: string }, env: typeof testEnv) => Promise<void> }
+
+    await scheduled({ cron: '0 0 * * *' }, testEnv)
+
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1)
+    expect(captureExceptionMock).toHaveBeenCalledWith(expect.any(Error))
   })
 })
