@@ -39,8 +39,9 @@ Sprint and Story Points are custom fields whose IDs differ per Jira site.
    `https://YOURORG.atlassian.net/rest/api/2/issue/ABC-1?expand=names`
 2. Search the JSON for `"Sprint"` and `"Story point"` inside the `names` block.
    The keys look like `customfield_10020`.
-3. Update `CUSTOM_FIELDS_SPRINT` and `CUSTOM_FIELDS_STORY_POINTS` in
-   `src/workers/wrangler.jsonc` (or override them later via wrangler).
+3. Update `CUSTOM_FIELDS_SPRINT` and `CUSTOM_FIELDS_STORY_POINTS` as
+   **Cloudflare Worker variables** (Workers → jira2ggsheet → Settings → Variables).
+   They're also mirrored in `src/workers/.dev.vars` for local dev.
 
 ### 4. Configure and deploy
 
@@ -68,11 +69,13 @@ npx wrangler secret put SENTRY_DSN
 # Paste: https://660a1d71d1c0c899f5fe3deb29fa3734@o4511895609475072.ingest.us.sentry.io/4511895614980096
 ```
 
-Adjust variables in `wrangler.jsonc` if needed (`PROJECT_KEY`, `TEMPLATE_SHEET`,
-`COLUMN_MAP_JSON`, `CUSTOM_FIELDS_*`, `TIMEZONE`, `DELETE_MODE`), then deploy:
+Adjust variables in the Cloudflare dashboard (Settings → Variables):
+`PROJECT_KEY`, `TEMPLATE_SHEET`, `COLUMN_MAP_JSON`, `CUSTOM_FIELDS_*`,
+`TIMEZONE`, `DELETE_MODE`, `SPRINT_ID`, etc. Deploys keep existing
+Cloudflare variables (`wrangler deploy --keep-vars`) and never overwrite them.
 
 ```bash
-npx wrangler deploy
+npx wrangler deploy --keep-vars
 ```
 
 Copy the **deployed Worker URL** (printed at the end of `deploy`).
@@ -101,7 +104,7 @@ Copy the **deployed Worker URL** (printed at the end of `deploy`).
 |---|---|
 | No row appears | Webhook not firing: check JQL filter and events in Jira's webhook page; Jira shows delivery attempts there. Re-check the Worker URL and token. |
 | Worker logs "bad or missing token" | `?token=` in the webhook URL doesn't match `SECRET_TOKEN`. |
-| Worker logs "Ignored: project ..." | `PROJECT_KEY` in `wrangler.jsonc` doesn't match the issue's project. |
+| Worker logs "Ignored: project ..." | `PROJECT_KEY` variable doesn't match the issue's project. |
 | Google Sheets API 403 | The service account email must have **Editor** access on the sheet. |
 | Service account JWT auth fails | `GOOGLE_PRIVATE_KEY` must include the `-----BEGIN/END PRIVATE KEY-----` markers and line breaks (`\n`). |
 

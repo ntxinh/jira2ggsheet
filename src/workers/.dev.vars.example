@@ -4,5 +4,19 @@ GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAAS
 SPREADSHEET_ID=your-google-sheet-id
 JIRA_EMAIL=your-jira-email@example.com
 JIRA_API_TOKEN=your-atlassian-api-token
+
+# Plain vars (set in the Cloudflare dashboard for prod; local dev reads them here).
+JIRA_SUBDOMAIN=acme
+PROJECT_KEY=ABC
+TEMPLATE_SHEET=Template
+KEY_COLUMN=B
+HEADER_ROWS=3
+DELETE_MODE=delete
+TIMEZONE=Asia/Ho_Chi_Minh
+DATE_FORMAT=yyyy-MM-dd HH:mm
+CUSTOM_FIELDS_SPRINT=customfield_10016
+CUSTOM_FIELDS_STORY_POINTS=customfield_10021
+COLUMN_MAP_JSON={"B":"issueKey","C":"issueLink","D":"issueType","E":"priority","F":"summary","G":"status","M":"createdDate","K":"storyPoints","H":"assignee","L":"labels"}
 SPRINT_ID=42
-# SENTRY_DSN=https://660a1d71d1c0c899f5fe3deb29fa3734@o4511895609475072.ingest.us.sentry.io/4511895614980096  # uncomment to enable local Sentry reporting
+
+# SENTRY_DSN=https://PLACEHOLDER_1@PLACEHOLDER_2.ingest.us.sentry.io/PLACEHOLDER_3  # uncomment to enable local Sentry reporting

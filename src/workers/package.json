@@ -4,7 +4,7 @@
   "description": "Jira to Google Sheets sync — Cloudflare Worker",
   "scripts": {
     "dev": "wrangler dev --ip 0.0.0.0",
-    "deploy": "wrangler deploy",
+    "deploy": "wrangler deploy --keep-vars",
     "tail": "wrangler tail",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

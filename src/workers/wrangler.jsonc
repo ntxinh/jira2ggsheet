@@ -6,20 +6,6 @@
   "observability": {
     "enabled": true
   },
-  "vars": {
-    "JIRA_SUBDOMAIN": "acme",
-    "PROJECT_KEY": "ABC",
-    "TEMPLATE_SHEET": "Template",
-    "KEY_COLUMN": "B",
-    "HEADER_ROWS": "3",
-    "DELETE_MODE": "delete",
-    "TIMEZONE": "Asia/Ho_Chi_Minh",
-    "DATE_FORMAT": "yyyy-MM-dd HH:mm",
-    "CUSTOM_FIELDS_SPRINT": "customfield_10016",
-    "CUSTOM_FIELDS_STORY_POINTS": "customfield_10021",
-    "COLUMN_MAP_JSON": "{\"B\":\"issueKey\",\"C\":\"issueLink\",\"D\":\"issueType\",\"E\":\"priority\",\"F\":\"summary\",\"G\":\"status\",\"M\":\"createdDate\",\"K\":\"storyPoints\",\"H\":\"assignee\",\"L\":\"labels\"}",
-    "SPRINT_ID": "42"
-  },
   "triggers": {
     "crons": ["0 0 * * *"]
   }
