@@ -5,3 +5,4 @@ SPREADSHEET_ID=your-google-sheet-id
 JIRA_EMAIL=your-jira-email@example.com
 JIRA_API_TOKEN=your-atlassian-api-token
 SPRINT_ID=42
+# SENTRY_DSN=https://660a1d71d1c0c899f5fe3deb29fa3734@o4511895609475072.ingest.us.sentry.io/4511895614980096  # uncomment to enable local Sentry reporting

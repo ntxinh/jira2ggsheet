@@ -35,6 +35,7 @@ export interface Env {
   CUSTOM_FIELDS_SPRINT: string;
   CUSTOM_FIELDS_STORY_POINTS: string;
   COLUMN_MAP_JSON: string;
+  SENTRY_DSN?: string;
 }
 
 export function getConfig(env: Env): Config {

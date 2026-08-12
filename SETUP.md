@@ -63,6 +63,9 @@ npx wrangler secret put GOOGLE_PRIVATE_KEY
 
 npx wrangler secret put SPREADSHEET_ID
 # Paste: the ID from step 1
+
+npx wrangler secret put SENTRY_DSN
+# Paste: https://660a1d71d1c0c899f5fe3deb29fa3734@o4511895609475072.ingest.us.sentry.io/4511895614980096
 ```
 
 Adjust variables in `wrangler.jsonc` if needed (`PROJECT_KEY`, `TEMPLATE_SHEET`,
