@@ -118,10 +118,12 @@ app.get('/openapi.json', (c) => {
 // Scalar API docs UI
 app.get('/docs', apiReference({ spec: { url: '/openapi.json' } }))
 
-async function syncSprint(_controller: ScheduledController, env: Env): Promise<void> {
+async function syncSprint(sprintId: string, env: Env): Promise<{ issuesSynced: number; issuesFailed: number }> {
   const config = getConfig(env)
-  const jql = `project = ${config.PROJECT_KEY} AND sprint = ${config.SPRINT_ID} ORDER BY created ASC`
+  const jql = `project = ${config.PROJECT_KEY} AND sprint = ${sprintId} ORDER BY created ASC`
   const issues = await searchIssues(jql, config.JIRA_SUBDOMAIN, env.JIRA_EMAIL, env.JIRA_API_TOKEN)
+  let issuesSynced = 0
+  let issuesFailed = 0
   // ponytail: upsertIssue picks the tab by the issue's sprint field (active/last), same rule as the webhook. An issue in two active sprints may land elsewhere — accepted.
   await withToken(
     env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -130,13 +132,16 @@ async function syncSprint(_controller: ScheduledController, env: Env): Promise<v
       for (const issue of issues) {
         try {
           await upsertIssue(env.SPREADSHEET_ID, issue, token, config)
+          issuesSynced++
         } catch (err) {
+          issuesFailed++
           console.error(`Sprint sync failed for ${issue.key}: ${err}`)
           Sentry.captureException(err)
         }
       }
     },
   )
+  return { issuesSynced, issuesFailed }
 }
 
 export default Sentry.withSentry(
@@ -148,6 +153,6 @@ export default Sentry.withSentry(
   }),
   {
     fetch: (request, env, ctx?) => app.fetch(request, env, ctx),
-    scheduled: syncSprint,
+    scheduled: (_controller, env) => syncSprint(env.SPRINT_ID, env) as unknown as Promise<void>,
   } satisfies ExportedHandler<Env>,
 )

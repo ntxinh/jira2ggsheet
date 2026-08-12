@@ -157,7 +157,7 @@ describe('scheduled — sprint cron sync', () => {
     const module = await import('../index')
     const { scheduled } = module.default as unknown as { scheduled: (c: { cron: string }, env: typeof testEnv) => Promise<void> }
 
-    await expect(scheduled({ cron: '0 0 * * *' }, testEnv)).resolves.toBeUndefined()
+    await expect(scheduled({ cron: '0 0 * * *' }, testEnv)).resolves.toEqual({ issuesSynced: 1, issuesFailed: 1 })
 
     const jql = 'project = TEST AND sprint = 42 ORDER BY created ASC'
     expect(searchIssuesMock).toHaveBeenCalledWith(jql, 'acme', 'jira@example.com', 'jira-token')
