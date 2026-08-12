@@ -29,6 +29,8 @@ CI (`.github/workflows/deploy.yml`): `npm ci` → `typecheck` → `test` on push
 2. `getOrCreateSprintSheet` finds/renames/duplicates the `<sprintId>_*` tab from the Template tab.
 3. The issue is **deleted from every other sprint tab**, then upserted into its own tab (row found by `KEY_COLUMN`, else appended).
 
+Sprint sync is **chunked**: the 15-min cron (`*/15 * * * *`) processes one rotating 50-issue slice per tick, paced `SYNC_DELAY_MS` (~4s, default 4000) between upserts so Sheets' 60 read + 60 write req/min per-user quota is respected. `TICK_MS` in `index.ts` must match the cron interval.
+
 ## Gotchas
 
 - **Jira JQL endpoint pagination**: `/rest/api/3/search/jql` returns **no `total`** and ignores `startAt`. Paginate via `nextPageToken`/`isLast`. (A past bug truncated results to the first 100 issues.)

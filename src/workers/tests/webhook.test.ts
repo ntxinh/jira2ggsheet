@@ -25,6 +25,7 @@ const upsertIssueMock = vi.mocked(upsertIssue)
 
 afterEach(() => {
   vi.clearAllMocks()
+  vi.useRealTimers()
 })
 
 describe('POST / — Jira webhook', () => {
@@ -157,7 +158,7 @@ describe('scheduled — sprint cron sync', () => {
     const module = await import('../index')
     const { scheduled } = module.default as unknown as { scheduled: (c: { cron: string }, env: typeof testEnv) => Promise<void> }
 
-    await expect(scheduled({ cron: '0 0 * * *' }, testEnv)).resolves.toEqual({ issuesSynced: 1, issuesFailed: 1 })
+    await expect(scheduled({ cron: '*/15 * * * *' }, testEnv)).resolves.toEqual({ issuesSynced: 1, issuesFailed: 1, totalIssues: 2, chunkSize: 50, chunkIndex: 0 })
 
     const jql = 'project = TEST AND sprint = 42 ORDER BY created ASC'
     expect(searchIssuesMock).toHaveBeenCalledWith(jql, 'acme', 'jira@example.com', 'jira-token')
@@ -171,10 +172,54 @@ describe('scheduled — sprint cron sync', () => {
     const module = await import('../index')
     const { scheduled } = module.default as unknown as { scheduled: (c: { cron: string }, env: typeof testEnv) => Promise<void> }
 
-    await scheduled({ cron: '0 0 * * *' }, testEnv)
+    await scheduled({ cron: '*/15 * * * *' }, testEnv)
 
     expect(captureExceptionMock).toHaveBeenCalledTimes(1)
     expect(captureExceptionMock).toHaveBeenCalledWith(expect.any(Error))
+  })
+
+  it('processes one rotating chunk per 15-minute tick so large sprints stay under quota', async () => {
+    const issues = Array.from({ length: 120 }, (_, i) => ({ key: `ABC-${i + 1}`, fields: {} }))
+    searchIssuesMock.mockResolvedValue(issues)
+
+    const module = await import('../index')
+    const { scheduled } = module.default as unknown as { scheduled: (c: { cron: string }, env: typeof testEnv) => Promise<void> }
+
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(0)) // tick slot 0 of ceil(120/50)=3 chunks
+    await scheduled({ cron: '*/15 * * * *' }, testEnv)
+    expect(upsertIssueMock).toHaveBeenCalledTimes(50)
+    expect(vi.mocked(upsertIssueMock).mock.calls[0][1].key).toBe('ABC-1')
+    expect(vi.mocked(upsertIssueMock).mock.calls[49][1].key).toBe('ABC-50')
+
+    upsertIssueMock.mockClear()
+    vi.setSystemTime(new Date(900_000)) // +15 min, slot 1
+    await scheduled({ cron: '*/15 * * * *' }, testEnv)
+    expect(upsertIssueMock).toHaveBeenCalledTimes(50)
+    expect(vi.mocked(upsertIssueMock).mock.calls[0][1].key).toBe('ABC-51')
+  })
+
+  it('paces upserts so the per-minute Sheets quota is respected', async () => {
+    searchIssuesMock.mockResolvedValue([
+      { key: 'ABC-1', fields: {} },
+      { key: 'ABC-2', fields: {} },
+    ])
+
+    const module = await import('../index')
+    const { scheduled } = module.default as unknown as { scheduled: (c: { cron: string }, env: typeof testEnv) => Promise<void> }
+
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(0))
+    const env = { ...testEnv, SYNC_DELAY_MS: '4000' }
+    const p = scheduled({ cron: '*/15 * * * *' }, env)
+
+    await vi.advanceTimersByTimeAsync(100)
+    expect(upsertIssueMock).toHaveBeenCalledTimes(1) // first issue upserted immediately
+    await vi.advanceTimersByTimeAsync(4000) // pacing delay elapses
+    expect(upsertIssueMock).toHaveBeenCalledTimes(2) // second issue only after the delay
+    await vi.advanceTimersByTimeAsync(4000) // trailing delay after the last issue
+    await p
+    expect(upsertIssueMock).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -187,7 +232,7 @@ describe('GET /sync — manual sprint sync', () => {
 
     const res = await index.fetch(new Request(new URL('/sync?sprintId=99', 'http://localhost'), { method: 'GET' }), testEnv)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ sprintId: '99', issuesSynced: 2, issuesFailed: 0 })
+    expect(await res.json()).toEqual({ sprintId: '99', issuesSynced: 2, issuesFailed: 0, totalIssues: 2, chunkSize: 50, chunkIndex: 0 })
     expect(searchIssuesMock).toHaveBeenCalledWith('project = TEST AND sprint = 99 ORDER BY created ASC', 'acme', 'jira@example.com', 'jira-token')
   })
 
@@ -196,7 +241,7 @@ describe('GET /sync — manual sprint sync', () => {
 
     const res = await index.fetch(new Request(new URL('/sync', 'http://localhost'), { method: 'GET' }), testEnv)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ sprintId: '42', issuesSynced: 0, issuesFailed: 0 })
+    expect(await res.json()).toEqual({ sprintId: '42', issuesSynced: 0, issuesFailed: 0, totalIssues: 0, chunkSize: 50, chunkIndex: 0 })
     expect(searchIssuesMock).toHaveBeenCalledWith('project = TEST AND sprint = 42 ORDER BY created ASC', 'acme', 'jira@example.com', 'jira-token')
   })
 
@@ -206,7 +251,7 @@ describe('GET /sync — manual sprint sync', () => {
 
     const res = await index.fetch(new Request(new URL('/sync?sprintId=7', 'http://localhost'), { method: 'GET' }), testEnv)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ sprintId: '7', issuesSynced: 0, issuesFailed: 1 })
+    expect(await res.json()).toEqual({ sprintId: '7', issuesSynced: 0, issuesFailed: 1, totalIssues: 1, chunkSize: 50, chunkIndex: 0 })
   })
 
   it('returns 500 when the Jira search fails', async () => {

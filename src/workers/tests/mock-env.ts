@@ -19,4 +19,5 @@ export const testEnv: Env = {
   CUSTOM_FIELDS_SPRINT: 'customfield_10016',
   CUSTOM_FIELDS_STORY_POINTS: 'customfield_10021',
   COLUMN_MAP_JSON: '{"B":"issueKey","C":"issueLink","L":"labels"}',
+  SYNC_DELAY_MS: '0', // no pacing in tests; a dedicated test exercises pacing with its own env
 }

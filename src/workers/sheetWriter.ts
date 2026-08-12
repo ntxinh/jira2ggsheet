@@ -9,19 +9,26 @@ interface SheetInfo {
 }
 
 async function apiFetch(token: string, url: string, options: RequestInit = {}): Promise<unknown> {
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      ...options.headers,
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-  });
-  if (!res.ok) {
+  let backoffMs = 1000;
+  for (let attempt = 1; ; attempt++) {
+    const res = await fetch(url, {
+      ...options,
+      headers: {
+        ...options.headers,
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (res.ok) return res.json();
+    // 429 RESOURCE_EXHAUSTED: quota was rejected before the request was applied, so retrying is safe.
+    if (res.status === 429 && attempt < 4) {
+      await new Promise((resolve) => setTimeout(resolve, backoffMs * (0.9 + Math.random() * 0.2))); // jitter: concurrent callers don't retry in lockstep
+      backoffMs *= 2;
+      continue;
+    }
     const text = await res.text();
     throw new Error(`Sheets API ${res.status}: ${text}`);
   }
-  return res.json();
 }
 
 function sprintSheetName(sprint: Sprint): string {
