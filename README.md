@@ -8,7 +8,10 @@ Sync Jira Cloud issues to a Google Sheet in near real-time. Two runtimes:
 **How it works:** a Jira webhook fires on issue create/update/delete and POSTs
 the issue JSON to the worker/app, which upserts a row into the issue's per-sprint
 tab (`{Sprint Id}_{Sprint Name}`), cloned from a `Template` tab. Issues with no
-sprint are skipped. Column ↔ field mapping is configurable.
+sprint are skipped. Column ↔ field mapping is configurable. Full-sprint resyncs
+(history repair, backfill) run on a Durable Object: a `*/5` cron (or `GET /sync`)
+kicks a self-scheduling alarm chain that processes one Jira page per tick so the
+sync fits Cloudflare's Free-plan limits (`GET /sync/status` shows progress).
 
 - Design: `docs/superpowers/specs/2026-06-23-per-sprint-sheets-design.md`
 - Deployment: `SETUP.md`
@@ -29,7 +32,8 @@ sprint are skipped. Column ↔ field mapping is configurable.
 | `src/workers/config.ts` | Typed config from Worker env vars |
 | `src/workers/auth.ts` | Google service account JWT (Web Crypto API, zero deps) |
 | `src/workers/fieldExtractor.ts` | Port of `FieldExtractor.js` |
-| `src/workers/sheetWriter.ts` | Google Sheets REST API v4 (replaces `SpreadsheetApp`) |
+| `src/workers/sheetWriter.ts` | Google Sheets REST API v4 (replaces `SpreadsheetApp`); batched page writes + DO-storage OAuth token cache |
+| `src/workers/syncCoordinator.ts` | Durable Object driving full-sprint syncs (cron/`/sync` kick → alarm chain, one Jira page per tick) |
 
 ## Development — GAS (legacy)
 

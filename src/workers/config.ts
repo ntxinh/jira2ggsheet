@@ -1,3 +1,5 @@
+import type { SyncCoordinator } from './syncCoordinator';
+
 export interface Config {
   SPREADSHEET_ID: string;
   TEMPLATE_SHEET: string;
@@ -35,7 +37,7 @@ export interface Env {
   CUSTOM_FIELDS_SPRINT: string;
   CUSTOM_FIELDS_STORY_POINTS: string;
   COLUMN_MAP_JSON: string;
-  SYNC_DELAY_MS?: string; // optional pacing between sync upserts (ms); defaults to 4000
+  SYNC_COORDINATOR: DurableObjectNamespace<SyncCoordinator>; // DO binding (wrangler.jsonc)
   SENTRY_DSN?: string;
 }
 

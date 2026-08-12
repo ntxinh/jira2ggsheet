@@ -1,4 +1,19 @@
 import type { Env } from '../config'
+import type { SyncCoordinator, SyncStatus, KickResult } from '../syncCoordinator'
+
+// Fake Durable Object namespace for tests. Override kick/getStatus per test via
+// makeCoordinatorNamespace to control the DO's behavior without a real DO runtime.
+export function makeCoordinatorNamespace(overrides: {
+  kick?: (sprintId?: string) => Promise<KickResult>
+  getStatus?: () => Promise<SyncStatus>
+} = {}): DurableObjectNamespace<SyncCoordinator> {
+  const kick = overrides.kick ?? (async () => ({ status: 'started', sprintId: '42' }))
+  const getStatus = overrides.getStatus ?? (async () => ({ running: false }))
+  return {
+    idFromName: () => 'test-coordinator',
+    get: () => ({ kick, getStatus }),
+  } as unknown as DurableObjectNamespace<SyncCoordinator>
+}
 
 export const testEnv: Env = {
   SECRET_TOKEN: 'test-token',
@@ -19,5 +34,5 @@ export const testEnv: Env = {
   CUSTOM_FIELDS_SPRINT: 'customfield_10016',
   CUSTOM_FIELDS_STORY_POINTS: 'customfield_10021',
   COLUMN_MAP_JSON: '{"B":"issueKey","C":"issueLink","L":"labels"}',
-  SYNC_DELAY_MS: '0', // no pacing in tests; a dedicated test exercises pacing with its own env
+  SYNC_COORDINATOR: makeCoordinatorNamespace(),
 }

@@ -2,30 +2,17 @@ import { OpenAPIHono, createRoute } from '@hono/zod-openapi'
 import { apiReference } from '@scalar/hono-api-reference'
 import * as Sentry from '@sentry/cloudflare'
 import { getConfig, type Env } from './config'
-import { searchIssues } from './jira'
 import { upsertIssue, deleteIssue, withToken } from './sheetWriter'
+import type { SyncCoordinator } from './syncCoordinator'
 import { JiraWebhookPayloadSchema, WebhookQuerySchema, SyncQuerySchema } from './schema'
 
-// Chunked sync: the Sheets API caps at 60 read + 60 write req/min per user, and each upsertIssue costs
-// ~2 reads + ~2-4 writes. Syncing a large sprint in one run blows that budget (429 RESOURCE_EXHAUSTED).
-// So the 15-min cron processes one rotating CHUNK_SIZE slice per tick, and upserts are spaced
-// SYNC_DELAY_MS apart — ~4s keeps reads at ~30/min and typical writes (1-2/issue) at ~15-30/min, under
-// the 60/min cap; the pathological 4-writes case sits at the boundary and the 429 retry absorbs it. 50 issues take
-// ~4 min per tick (within cron's 15-min execution limit); an 800-issue sprint cycles fully in ~4h, and
-// webhooks still cover real-time changes in between.
-const CHUNK_SIZE = 50
-const TICK_MS = 15 * 60 * 1000 // rotation period; must match the cron interval in wrangler.jsonc
-const DEFAULT_SYNC_DELAY_MS = 4000
+export { SyncCoordinator } from './syncCoordinator' // exported from the entrypoint so wrangler can bind the DO
 
-interface SyncStats {
-  issuesSynced: number
-  issuesFailed: number
-  totalIssues: number
-  chunkSize: number
-  chunkIndex: number
-}
-
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+// Full-sprint syncs (cron + manual) run on the SyncCoordinator Durable Object: the cron every
+// 5 min and GET /sync both wake it, and a self-scheduling alarm chain processes one Jira page
+// (100 issues) per tick — one batched sheet write per page, ~3s apart. This keeps each invocation
+// within the Free plan's 10ms CPU / 50-subrequest limits (see syncCoordinator.ts). Webhooks below
+// stay synchronous per-issue upserts for near-real-time changes.
 
 const app = new OpenAPIHono<{ Bindings: Env }>()
 
@@ -55,14 +42,26 @@ const syncRoute = createRoute({
   method: 'get',
   path: '/sync',
   summary: 'Manually trigger sprint sync',
-  description: 'Processes one rotating chunk of a sprint into its per-sprint tabs (CHUNK_SIZE issues, paced ~4s apart to stay under the Sheets per-minute quota — the request takes a few minutes for a full chunk). The 15-minute cron rotates through every chunk; calling /sync manually runs the chunk for the current time slot. Pass sprintId as a query param, or omit it to use the configured SPRINT_ID.',
+  description: 'Kicks the SyncCoordinator Durable Object to sync a sprint. If a sync is already running it is left alone (status "in_progress"). The alarm chain then processes one Jira page per tick, so the request returns immediately — poll GET /sync/status for progress. Pass sprintId as a query param, or omit it to use the configured SPRINT_ID.',
   tags: ['Sync'],
   request: {
     query: SyncQuerySchema,
   },
   responses: {
-    200: { description: 'Sync stats for the processed chunk' },
-    500: { description: 'Jira search or sheets failure' },
+    200: { description: 'Sync started or already in progress' },
+    500: { description: 'Failed to wake the sync coordinator' },
+  },
+})
+
+const syncStatusRoute = createRoute({
+  method: 'get',
+  path: '/sync/status',
+  summary: 'Poll sprint sync progress',
+  description: 'Returns whether a full-sprint sync is running and, if so, how many pages and rows have been completed so far.',
+  tags: ['Sync'],
+  responses: {
+    200: { description: 'Sync status' },
+    500: { description: 'Failed to read sync status' },
   },
 })
 
@@ -138,11 +137,24 @@ app.openapi(syncRoute, async (c) => {
   const { sprintId } = c.req.valid('query')
   const id = sprintId ?? c.env.SPRINT_ID
   try {
-    return c.json({ sprintId: id, ...await syncSprint(id, c.env) })
+    const result = await coordinator(c.env).kick(id)
+    // When a different sprint is already syncing, say so instead of implying the requested one is.
+    const runningSprintId = result.status === 'in_progress' && result.sprintId !== id ? result.sprintId : undefined
+    return c.json({ sprintId: id, status: result.status, ...(runningSprintId ? { runningSprintId } : {}) })
   } catch (err) {
     console.error('Manual sync failed: ' + err)
     Sentry.captureException(err)
     return c.json({ error: 'sync failed' }, 500)
+  }
+})
+
+app.openapi(syncStatusRoute, async (c) => {
+  try {
+    return c.json(await coordinator(c.env).getStatus())
+  } catch (err) {
+    console.error('Sync status failed: ' + err)
+    Sentry.captureException(err)
+    return c.json({ error: 'status failed' }, 500)
   }
 })
 
@@ -166,43 +178,10 @@ app.get('/openapi.json', (c) => {
 // Scalar API docs UI
 app.get('/docs', apiReference({ spec: { url: '/openapi.json' } }))
 
-async function syncSprint(sprintId: string, env: Env): Promise<SyncStats> {
-  const config = getConfig(env)
-  const jql = `project = ${config.PROJECT_KEY} AND sprint = ${sprintId} ORDER BY created ASC`
-  const issues = await searchIssues(jql, config.JIRA_SUBDOMAIN, env.JIRA_EMAIL, env.JIRA_API_TOKEN)
-  if (issues.length === 0) return { issuesSynced: 0, issuesFailed: 0, totalIssues: 0, chunkSize: CHUNK_SIZE, chunkIndex: 0 }
-
-  // ponytail: 15-min cron processes one rotating slice of the sprint; a full cycle covers every issue
-  // without any state store. Upserts are idempotent, so overlap between slices (or a skipped tick) is harmless.
-  const numChunks = Math.ceil(issues.length / CHUNK_SIZE)
-  const chunkIdx = Math.floor(Date.now() / TICK_MS) % numChunks
-  const chunk = issues.slice(chunkIdx * CHUNK_SIZE, (chunkIdx + 1) * CHUNK_SIZE)
-
-  // Optional env knob; default paces upserts far enough apart to respect the 60 req/min/user quota.
-  const parsedDelay = parseInt(env.SYNC_DELAY_MS ?? '', 10)
-  const delayMs = Number.isNaN(parsedDelay) ? DEFAULT_SYNC_DELAY_MS : parsedDelay
-
-  let issuesSynced = 0
-  let issuesFailed = 0
-  // ponytail: upsertIssue picks the tab by the issue's sprint field (active/last), same rule as the webhook. An issue in two active sprints may land elsewhere — accepted.
-  await withToken(
-    env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    env.GOOGLE_PRIVATE_KEY,
-    async (token) => {
-      for (const issue of chunk) {
-        try {
-          await upsertIssue(env.SPREADSHEET_ID, issue, token, config)
-          issuesSynced++
-        } catch (err) {
-          issuesFailed++
-          console.error(`Sprint sync failed for ${issue.key}: ${err}`)
-          Sentry.captureException(err)
-        }
-        if (delayMs > 0) await sleep(delayMs)
-      }
-    },
-  )
-  return { issuesSynced, issuesFailed, totalIssues: issues.length, chunkSize: CHUNK_SIZE, chunkIndex: chunkIdx }
+// Single named SyncCoordinator instance: all kicks (cron, manual) land on the same object, which
+// is what gives the sync its shared progress state and its "one sync at a time" guarantee.
+function coordinator(env: Env): DurableObjectStub<SyncCoordinator> {
+  return env.SYNC_COORDINATOR.get(env.SYNC_COORDINATOR.idFromName('global'))
 }
 
 export default Sentry.withSentry(
@@ -214,7 +193,9 @@ export default Sentry.withSentry(
   }),
   {
     fetch: (request, env, ctx?) => app.fetch(request, env, ctx),
-    // Promise<{issuesSynced;issuesFailed}> is not assignable to Promise<void> under satisfies ExportedHandler<Env>; the summary resolves at runtime (test asserts it).
-    scheduled: (_controller, env) => syncSprint(env.SPRINT_ID, env) as unknown as Promise<void>,
+    // Watchdog: wakes the DO every 5 min; the alarm chain does the real looping.
+    scheduled: async (_controller, env) => {
+      await coordinator(env).kick()
+    },
   } satisfies ExportedHandler<Env>,
 )

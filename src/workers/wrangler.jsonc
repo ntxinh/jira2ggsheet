@@ -7,6 +7,20 @@
     "enabled": true
   },
   "triggers": {
-    "crons": ["*/15 * * * *"]
-  }
+    "crons": ["*/5 * * * *"]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SYNC_COORDINATOR",
+        "class_name": "SyncCoordinator"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["SyncCoordinator"]
+    }
+  ]
 }

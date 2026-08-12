@@ -1,10 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import index from '../index'
-import { testEnv } from './mock-env'
-import { searchIssues } from '../jira'
-import { upsertIssue } from '../sheetWriter'
+import { testEnv, makeCoordinatorNamespace } from './mock-env'
+import type { KickResult } from '../syncCoordinator'
 
-vi.mock('../jira', () => ({ searchIssues: vi.fn() }))
 vi.mock('../sheetWriter', () => ({
   upsertIssue: vi.fn().mockResolvedValue(undefined),
   withToken: vi.fn((_email: string, _key: string, fn: (token: string) => Promise<void>) => fn('token')),
@@ -15,13 +13,6 @@ vi.mock('@sentry/cloudflare', () => ({
   withSentry: (_options: unknown, handler: unknown) => handler,
   captureException: vi.fn(),
 }))
-
-import { captureException } from '@sentry/cloudflare'
-
-const captureExceptionMock = vi.mocked(captureException)
-
-const searchIssuesMock = vi.mocked(searchIssues)
-const upsertIssueMock = vi.mocked(upsertIssue)
 
 afterEach(() => {
   vi.clearAllMocks()
@@ -148,122 +139,83 @@ describe('GET /docs', () => {
 })
 
 describe('scheduled — sprint cron sync', () => {
-  it('runs JQL search and upserts each issue, tolerating per-issue failure', async () => {
-    searchIssuesMock.mockResolvedValue([
-      { key: 'ABC-1', fields: {} },
-      { key: 'ABC-2', fields: {} },
-    ])
-    upsertIssueMock.mockRejectedValueOnce(new Error('sheets down'))
+  it('wakes the SyncCoordinator DO on each cron tick', async () => {
+    const kick = vi.fn(async (): Promise<KickResult> => ({ status: 'started', sprintId: '42' }))
+    const env = { ...testEnv, SYNC_COORDINATOR: makeCoordinatorNamespace({ kick }) }
 
     const module = await import('../index')
     const { scheduled } = module.default as unknown as { scheduled: (c: { cron: string }, env: typeof testEnv) => Promise<void> }
 
-    await expect(scheduled({ cron: '*/15 * * * *' }, testEnv)).resolves.toEqual({ issuesSynced: 1, issuesFailed: 1, totalIssues: 2, chunkSize: 50, chunkIndex: 0 })
+    await scheduled({ cron: '*/5 * * * *' }, env)
 
-    const jql = 'project = TEST AND sprint = 42 ORDER BY created ASC'
-    expect(searchIssuesMock).toHaveBeenCalledWith(jql, 'acme', 'jira@example.com', 'jira-token')
-    expect(upsertIssueMock).toHaveBeenCalledTimes(2)
-  })
-
-  it('reports per-issue failures to Sentry', async () => {
-    searchIssuesMock.mockResolvedValue([{ key: 'ABC-1', fields: {} }])
-    upsertIssueMock.mockRejectedValueOnce(new Error('sheets down'))
-
-    const module = await import('../index')
-    const { scheduled } = module.default as unknown as { scheduled: (c: { cron: string }, env: typeof testEnv) => Promise<void> }
-
-    await scheduled({ cron: '*/15 * * * *' }, testEnv)
-
-    expect(captureExceptionMock).toHaveBeenCalledTimes(1)
-    expect(captureExceptionMock).toHaveBeenCalledWith(expect.any(Error))
-  })
-
-  it('processes one rotating chunk per 15-minute tick so large sprints stay under quota', async () => {
-    const issues = Array.from({ length: 120 }, (_, i) => ({ key: `ABC-${i + 1}`, fields: {} }))
-    searchIssuesMock.mockResolvedValue(issues)
-
-    const module = await import('../index')
-    const { scheduled } = module.default as unknown as { scheduled: (c: { cron: string }, env: typeof testEnv) => Promise<void> }
-
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date(0)) // tick slot 0 of ceil(120/50)=3 chunks
-    await scheduled({ cron: '*/15 * * * *' }, testEnv)
-    expect(upsertIssueMock).toHaveBeenCalledTimes(50)
-    expect(vi.mocked(upsertIssueMock).mock.calls[0][1].key).toBe('ABC-1')
-    expect(vi.mocked(upsertIssueMock).mock.calls[49][1].key).toBe('ABC-50')
-
-    upsertIssueMock.mockClear()
-    vi.setSystemTime(new Date(900_000)) // +15 min, slot 1
-    await scheduled({ cron: '*/15 * * * *' }, testEnv)
-    expect(upsertIssueMock).toHaveBeenCalledTimes(50)
-    expect(vi.mocked(upsertIssueMock).mock.calls[0][1].key).toBe('ABC-51')
-  })
-
-  it('paces upserts so the per-minute Sheets quota is respected', async () => {
-    searchIssuesMock.mockResolvedValue([
-      { key: 'ABC-1', fields: {} },
-      { key: 'ABC-2', fields: {} },
-    ])
-
-    const module = await import('../index')
-    const { scheduled } = module.default as unknown as { scheduled: (c: { cron: string }, env: typeof testEnv) => Promise<void> }
-
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date(0))
-    const env = { ...testEnv, SYNC_DELAY_MS: '4000' }
-    const p = scheduled({ cron: '*/15 * * * *' }, env)
-
-    await vi.advanceTimersByTimeAsync(100)
-    expect(upsertIssueMock).toHaveBeenCalledTimes(1) // first issue upserted immediately
-    await vi.advanceTimersByTimeAsync(4000) // pacing delay elapses
-    expect(upsertIssueMock).toHaveBeenCalledTimes(2) // second issue only after the delay
-    await vi.advanceTimersByTimeAsync(4000) // trailing delay after the last issue
-    await p
-    expect(upsertIssueMock).toHaveBeenCalledTimes(2)
+    expect(kick).toHaveBeenCalledTimes(1)
   })
 })
 
 describe('GET /sync — manual sprint sync', () => {
-  it('syncs the sprintId from the query param and returns counts', async () => {
-    searchIssuesMock.mockResolvedValue([
-      { key: 'ABC-1', fields: {} },
-      { key: 'ABC-2', fields: {} },
-    ])
+  it('kicks the DO with the sprintId from the query param and reports started', async () => {
+    const kick = vi.fn(async (): Promise<KickResult> => ({ status: 'started', sprintId: '99' }))
+    const env = { ...testEnv, SYNC_COORDINATOR: makeCoordinatorNamespace({ kick }) }
 
-    const res = await index.fetch(new Request(new URL('/sync?sprintId=99', 'http://localhost'), { method: 'GET' }), testEnv)
+    const res = await index.fetch(new Request(new URL('/sync?sprintId=99', 'http://localhost'), { method: 'GET' }), env)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ sprintId: '99', issuesSynced: 2, issuesFailed: 0, totalIssues: 2, chunkSize: 50, chunkIndex: 0 })
-    expect(searchIssuesMock).toHaveBeenCalledWith('project = TEST AND sprint = 99 ORDER BY created ASC', 'acme', 'jira@example.com', 'jira-token')
+    expect(await res.json()).toEqual({ sprintId: '99', status: 'started' })
+    expect(kick).toHaveBeenCalledWith('99')
   })
 
   it('falls back to env SPRINT_ID when sprintId omitted', async () => {
-    searchIssuesMock.mockResolvedValue([])
+    const kick = vi.fn(async (): Promise<KickResult> => ({ status: 'started', sprintId: '42' }))
+    const env = { ...testEnv, SYNC_COORDINATOR: makeCoordinatorNamespace({ kick }) }
 
-    const res = await index.fetch(new Request(new URL('/sync', 'http://localhost'), { method: 'GET' }), testEnv)
+    const res = await index.fetch(new Request(new URL('/sync', 'http://localhost'), { method: 'GET' }), env)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ sprintId: '42', issuesSynced: 0, issuesFailed: 0, totalIssues: 0, chunkSize: 50, chunkIndex: 0 })
-    expect(searchIssuesMock).toHaveBeenCalledWith('project = TEST AND sprint = 42 ORDER BY created ASC', 'acme', 'jira@example.com', 'jira-token')
+    expect(await res.json()).toEqual({ sprintId: '42', status: 'started' })
+    expect(kick).toHaveBeenCalledWith('42')
   })
 
-  it('counts failed upserts', async () => {
-    searchIssuesMock.mockResolvedValue([{ key: 'ABC-1', fields: {} }])
-    upsertIssueMock.mockRejectedValueOnce(new Error('sheets down'))
+  it('reports in_progress when a sync is already running', async () => {
+    const env = { ...testEnv, SYNC_COORDINATOR: makeCoordinatorNamespace({ kick: vi.fn(async (): Promise<KickResult> => ({ status: 'in_progress', sprintId: '99' })) }) }
 
-    const res = await index.fetch(new Request(new URL('/sync?sprintId=7', 'http://localhost'), { method: 'GET' }), testEnv)
+    const res = await index.fetch(new Request(new URL('/sync?sprintId=99', 'http://localhost'), { method: 'GET' }), env)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ sprintId: '7', issuesSynced: 0, issuesFailed: 1, totalIssues: 1, chunkSize: 50, chunkIndex: 0 })
+    expect(await res.json()).toEqual({ sprintId: '99', status: 'in_progress' })
   })
 
-  it('returns 500 when the Jira search fails', async () => {
-    searchIssuesMock.mockRejectedValueOnce(new Error('jira down'))
+  it('reports which sprint is actually running when a different one is requested', async () => {
+    const env = { ...testEnv, SYNC_COORDINATOR: makeCoordinatorNamespace({ kick: vi.fn(async (): Promise<KickResult> => ({ status: 'in_progress', sprintId: '42' })) }) }
 
-    const res = await index.fetch(new Request(new URL('/sync?sprintId=7', 'http://localhost'), { method: 'GET' }), testEnv)
-    expect(res.status).toBe(500)
-    expect(await res.json()).toEqual({ error: 'sync failed' })
+    const res = await index.fetch(new Request(new URL('/sync?sprintId=99', 'http://localhost'), { method: 'GET' }), env)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ sprintId: '99', status: 'in_progress', runningSprintId: '42' })
   })
 
   it('returns 400 for a non-numeric sprintId', async () => {
     const res = await index.fetch(new Request(new URL('/sync?sprintId=1%20OR%20sprint%20=%202', 'http://localhost'), { method: 'GET' }), testEnv)
     expect(res.status).toBe(400)
+  })
+
+  it('returns 500 when waking the DO fails', async () => {
+    const env = { ...testEnv, SYNC_COORDINATOR: makeCoordinatorNamespace({ kick: vi.fn(async (): Promise<KickResult> => { throw new Error('do down') }) }) }
+
+    const res = await index.fetch(new Request(new URL('/sync?sprintId=7', 'http://localhost'), { method: 'GET' }), env)
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'sync failed' })
+  })
+})
+
+describe('GET /sync/status — sync progress', () => {
+  it('reports idle when no sync is running', async () => {
+    const res = await index.fetch(new Request(new URL('/sync/status', 'http://localhost'), { method: 'GET' }), testEnv)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ running: false })
+  })
+
+  it('reports progress while a sync is running', async () => {
+    const getStatus = async () => ({ running: true, sprintId: '42', pagesDone: 2, rowsWritten: 150, startedAt: 1000, updatedAt: 2000 })
+    const env = { ...testEnv, SYNC_COORDINATOR: makeCoordinatorNamespace({ getStatus }) }
+
+    const res = await index.fetch(new Request(new URL('/sync/status', 'http://localhost'), { method: 'GET' }), env)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ running: true, sprintId: '42', pagesDone: 2, rowsWritten: 150, startedAt: 1000, updatedAt: 2000 })
   })
 })

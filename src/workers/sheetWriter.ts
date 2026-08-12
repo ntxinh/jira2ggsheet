@@ -113,10 +113,12 @@ async function readKeyColumns(
   for (const t of sheetTitles) {
     params.append('ranges', `${t}!${column}:${column}`);
   }
+  // Strict: a failed key read must throw, not silently return empty — a page batch writes up to
+  // 100 rows based on these keys, and treating them as empty would duplicate every row.
   const data = await apiFetch(
     token,
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?${params}`,
-  ).catch(() => ({ valueRanges: [] as unknown[] })) as { valueRanges?: Array<{ values?: string[][] }> };
+  ) as { valueRanges?: Array<{ values?: string[][] }> };
   const map = new Map<string, string[]>();
   sheetTitles.forEach((title, i) => {
     map.set(title, (data.valueRanges?.[i]?.values ?? []).map(r => r[0] ?? ''));
@@ -244,6 +246,124 @@ export async function upsertIssue(
   await writeRowRange(spreadsheetId, sheet.title, row, colMap, token);
 }
 
+export interface SprintPageResult {
+  rowsWritten: number;
+}
+
+// Batched page sync for the DO alarm chain: one metadata read, one key-column batchGet per
+// sprint group, ONE values:batchUpdate for every row in the page, and ONE batchUpdate for all
+// stale-row deletes. That keeps a page tick at ~5 subrequests (Free plan caps 50/invocation)
+// and avoids parsing the spreadsheet metadata once per issue.
+export async function syncSprintPage(
+  spreadsheetId: string,
+  issues: JiraIssue[],
+  token: string,
+  config: Config,
+): Promise<SprintPageResult> {
+  if (issues.length === 0) return { rowsWritten: 0 };
+
+  // Group before any sheet I/O so a page with no sprinted issues costs zero requests. The JQL is
+  // sprint-filtered, so this is normally one group; an issue in two active sprints can still land
+  // elsewhere (same accepted trade-off as the webhook path).
+  const groups = new Map<number, { sprint: Sprint; issues: JiraIssue[] }>();
+  for (const issue of issues) {
+    const sprint = pickSprint(issue.fields[config.CUSTOM_FIELDS.sprint]);
+    if (!sprint) {
+      console.log(`Skipped ${issue.key}: no sprint`);
+      continue;
+    }
+    const group = groups.get(sprint.id);
+    if (group) group.issues.push(issue);
+    else groups.set(sprint.id, { sprint, issues: [issue] });
+  }
+  if (groups.size === 0) return { rowsWritten: 0 };
+
+  const allSheets = await getSheets(spreadsheetId, token);
+  const sprintTabs = allSheets.filter((s) => s.title !== config.TEMPLATE_SHEET && /^\d+_/.test(s.title));
+
+  const updates: Array<{ range: string; values: string[][] }> = [];
+  const deletes: Array<{ sheetId: number; row: number }> = [];
+
+  for (const { sprint, issues: groupIssues } of groups.values()) {
+    const sheet = await getOrCreateSprintSheet(spreadsheetId, sprint, token, config, allSheets);
+    const others = sprintTabs.filter((s) => s.sheetId !== sheet.sheetId);
+    const targets = [...others.map((s) => s.title), sheet.title];
+    const keyCols = await readKeyColumns(spreadsheetId, targets, config.KEY_COLUMN, token);
+
+    const ownKeys = keyCols.get(sheet.title) ?? [];
+    let nextRow = Math.max(ownKeys.length, config.HEADER_ROWS) + 1;
+    const pending = new Set<string>(); // keys already assigned a fresh row in this page (in-page dedup)
+
+    for (const issue of groupIssues) {
+      let row = findRowIndex(ownKeys, issue.key, config.HEADER_ROWS);
+      if (row === null && !pending.has(issue.key)) {
+        row = nextRow++;
+        pending.add(issue.key);
+      }
+      if (row === null) continue; // duplicate key within the page; the first copy is already queued
+
+      const colMap = buildRowMap(issue, config, row);
+      const cols = [...colMap.keys()].sort((a, b) => a - b);
+      const minCol = cols[0];
+      const maxCol = cols[cols.length - 1];
+      const values = new Array(maxCol - minCol + 1).fill('');
+      for (const [col, val] of colMap) values[col - minCol] = val;
+      updates.push({
+        range: `${sheet.title}!${indexToColumnLetter(minCol)}${row}:${indexToColumnLetter(maxCol)}${row}`,
+        values: [values],
+      });
+
+      for (const other of others) {
+        const staleRow = findRowIndex(keyCols.get(other.title) ?? [], issue.key, config.HEADER_ROWS);
+        if (staleRow !== null) deletes.push({ sheetId: other.sheetId, row: staleRow });
+      }
+    }
+  }
+
+  if (updates.length > 0) {
+    await apiFetch(
+      token,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: updates }),
+      },
+    );
+  }
+
+  if (deletes.length > 0) {
+    // One batchUpdate per tab with rows DESCENDING: batchUpdate applies requests sequentially, so
+    // deleting a lower row shifts higher ones up and original row indices only stay valid if the
+    // highest rows go first. A page's issues occupy at most one row per tab, so each batch is ≤100
+    // requests (within the API limit) and batches for different tabs never interact.
+    const bySheet = new Map<number, number[]>();
+    for (const d of deletes) {
+      const rows = bySheet.get(d.sheetId) ?? [];
+      rows.push(d.row);
+      bySheet.set(d.sheetId, rows);
+    }
+    for (const [sheetId, rows] of bySheet) {
+      const sorted = [...new Set(rows)].sort((a, b) => b - a);
+      await apiFetch(
+        token,
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            requests: sorted.map((row) => ({
+              deleteDimension: {
+                range: { sheetId, dimension: 'ROWS', startIndex: row - 1, endIndex: row },
+              },
+            })),
+          }),
+        },
+      );
+    }
+  }
+
+  return { rowsWritten: updates.length };
+}
+
 export async function deleteIssue(
   spreadsheetId: string,
   issue: JiraIssue,
@@ -280,4 +400,27 @@ export async function withToken(
 ): Promise<void> {
   const token = await getAccessToken(email, privateKey);
   await fn(token);
+}
+
+interface StoredToken {
+  token: string;
+  expiresAt: number;
+}
+
+// Durable-object variant: caches the OAuth token in DO storage (~1h validity, 60s headroom) so
+// the RS256 JWT is signed at most once per hour instead of once per alarm tick (Free plan: 10ms
+// CPU per invocation — JWT signing eats most of that budget).
+export async function withStoredToken<T>(
+  storage: DurableObjectStorage,
+  email: string,
+  privateKey: string,
+  fn: (token: string) => Promise<T>,
+): Promise<T> {
+  const cached = await storage.get<StoredToken>('oauth_token');
+  let token = cached && cached.expiresAt > Date.now() ? cached.token : undefined;
+  if (!token) {
+    token = await getAccessToken(email, privateKey);
+    await storage.put('oauth_token', { token, expiresAt: Date.now() + 3_600_000 - 60_000 });
+  }
+  return fn(token);
 }
