@@ -187,7 +187,7 @@ describe('GET /sync — manual sprint sync', () => {
 
     const res = await index.fetch(new Request(new URL('/sync?sprintId=99', 'http://localhost'), { method: 'GET' }), testEnv)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ issuesSynced: 2, issuesFailed: 0 })
+    expect(await res.json()).toEqual({ sprintId: '99', issuesSynced: 2, issuesFailed: 0 })
     expect(searchIssuesMock).toHaveBeenCalledWith('project = TEST AND sprint = 99 ORDER BY created ASC', 'acme', 'jira@example.com', 'jira-token')
   })
 
@@ -196,7 +196,7 @@ describe('GET /sync — manual sprint sync', () => {
 
     const res = await index.fetch(new Request(new URL('/sync', 'http://localhost'), { method: 'GET' }), testEnv)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ issuesSynced: 0, issuesFailed: 0 })
+    expect(await res.json()).toEqual({ sprintId: '42', issuesSynced: 0, issuesFailed: 0 })
     expect(searchIssuesMock).toHaveBeenCalledWith('project = TEST AND sprint = 42 ORDER BY created ASC', 'acme', 'jira@example.com', 'jira-token')
   })
 
@@ -206,7 +206,7 @@ describe('GET /sync — manual sprint sync', () => {
 
     const res = await index.fetch(new Request(new URL('/sync?sprintId=7', 'http://localhost'), { method: 'GET' }), testEnv)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ issuesSynced: 0, issuesFailed: 1 })
+    expect(await res.json()).toEqual({ sprintId: '7', issuesSynced: 0, issuesFailed: 1 })
   })
 
   it('returns 500 when the Jira search fails', async () => {
@@ -215,5 +215,10 @@ describe('GET /sync — manual sprint sync', () => {
     const res = await index.fetch(new Request(new URL('/sync?sprintId=7', 'http://localhost'), { method: 'GET' }), testEnv)
     expect(res.status).toBe(500)
     expect(await res.json()).toEqual({ error: 'sync failed' })
+  })
+
+  it('returns 400 for a non-numeric sprintId', async () => {
+    const res = await index.fetch(new Request(new URL('/sync?sprintId=1%20OR%20sprint%20=%202', 'http://localhost'), { method: 'GET' }), testEnv)
+    expect(res.status).toBe(400)
   })
 })

@@ -117,7 +117,7 @@ app.openapi(syncRoute, async (c) => {
   const { sprintId } = c.req.valid('query')
   const id = sprintId ?? c.env.SPRINT_ID
   try {
-    return c.json(await syncSprint(id, c.env))
+    return c.json({ sprintId: id, ...await syncSprint(id, c.env) })
   } catch (err) {
     console.error('Manual sync failed: ' + err)
     Sentry.captureException(err)
@@ -180,6 +180,7 @@ export default Sentry.withSentry(
   }),
   {
     fetch: (request, env, ctx?) => app.fetch(request, env, ctx),
+    // Promise<{issuesSynced;issuesFailed}> is not assignable to Promise<void> under satisfies ExportedHandler<Env>; the summary resolves at runtime (test asserts it).
     scheduled: (_controller, env) => syncSprint(env.SPRINT_ID, env) as unknown as Promise<void>,
   } satisfies ExportedHandler<Env>,
 )

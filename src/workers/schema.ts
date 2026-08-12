@@ -52,7 +52,7 @@ const WebhookQuerySchema = z.object({
 })
 
 const SyncQuerySchema = z.object({
-  sprintId: z.string().optional().openapi({ description: 'Sprint ID to sync. Falls back to SPRINT_ID env var when omitted.' }),
+  sprintId: z.string().regex(/^\d+$/).optional().openapi({ description: 'Sprint ID to sync. Falls back to SPRINT_ID env var when omitted.' }),
 })
 
 export { JiraWebhookPayloadSchema, JiraIssueSchema, JiraIssueFieldsSchema, WebhookQuerySchema, SyncQuerySchema }
