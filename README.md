@@ -12,6 +12,7 @@ sprint are skipped. Column ↔ field mapping is configurable. Full-sprint resync
 (history repair, backfill) run on a Durable Object: a `*/5` cron (or `GET /sync`)
 kicks a self-scheduling alarm chain that processes one Jira page per tick so the
 sync fits Cloudflare's Free-plan limits (`GET /sync/status` shows progress).
+When a sprint is renamed in Jira, the cron sync renames the matching tab (webhook fast path plus a 5-minute tab-name sweep).
 
 - Design: `docs/superpowers/specs/2026-06-23-per-sprint-sheets-design.md`
 - Deployment: `SETUP.md`
