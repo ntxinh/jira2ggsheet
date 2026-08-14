@@ -1,8 +1,8 @@
 import { DurableObject } from 'cloudflare:workers'
 import * as Sentry from '@sentry/cloudflare'
 import { getConfig, type Config, type Env } from './config'
-import { searchIssuesPage } from './jira'
-import { syncSprintPage, withStoredToken } from './sheetWriter'
+import { searchIssuesPage, fetchSprintName } from './jira'
+import { syncSprintPage, withStoredToken, getSheets, sprintSheetName, renameSprintTabs } from './sheetWriter'
 
 interface SyncState {
   sprintId: string
@@ -73,6 +73,7 @@ export class SyncCoordinator extends DurableObject<Env> {
     if (existing && Date.now() - existing.updatedAt < STALE_MS) {
       return { status: 'in_progress', sprintId: existing.sprintId }
     }
+    await this.syncTabNames()
     await this.ctx.storage.put<SyncState>(STATE_KEY, {
       sprintId: id,
       pagesDone: 0,
@@ -161,5 +162,54 @@ export class SyncCoordinator extends DurableObject<Env> {
       (token) => syncSprintPage(this.env.SPREADSHEET_ID, page.issues, token, this.config),
     )
     return { nextPageToken: page.nextPageToken, rowsWritten: result.rowsWritten, isLast: page.isLast }
+  }
+
+  // Best-effort tab-name sweep: compares every sprint tab against Jira's current sprint
+  // name and renames mismatches in one batch. Webhooks don't reliably fire on sprint
+  // renames, so the cron watchdog is the dependable detector. Errors never block the
+  // page sync — a 404 just means the sprint (and its tab) is left alone.
+  private async syncTabNames(): Promise<void> {
+    try {
+      await withStoredToken(
+        this.ctx.storage,
+        this.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+        this.env.GOOGLE_PRIVATE_KEY,
+        async (token) => {
+          const sheets = await getSheets(this.env.SPREADSHEET_ID, token)
+          const sprintTabs = sheets.filter(
+            (s) => s.title !== this.config.TEMPLATE_SHEET && /^\d+_/.test(s.title),
+          )
+          const renames: Array<{ sheetId: number; title: string }> = []
+          for (const tab of sprintTabs) {
+            const sprintId = tab.title.split('_')[0]
+            try {
+              const name = await fetchSprintName(
+                sprintId,
+                this.config.JIRA_SUBDOMAIN,
+                this.env.JIRA_EMAIL,
+                this.env.JIRA_API_TOKEN,
+              )
+              const target = sprintSheetName({ id: Number(sprintId), name, state: '' })
+              if (tab.title !== target) renames.push({ sheetId: tab.sheetId, title: target })
+            } catch (err) {
+              console.error(`Sprint name lookup failed for tab "${tab.title}": ${err}`)
+              try {
+                Sentry.captureException(err)
+              } catch {
+                // telemetry must never kill the sweep
+              }
+            }
+          }
+          await renameSprintTabs(this.env.SPREADSHEET_ID, renames, token)
+        },
+      )
+    } catch (err) {
+      console.error(`Tab-name sweep failed: ${err}`)
+      try {
+        Sentry.captureException(err)
+      } catch {
+        // telemetry must never kill the sweep
+      }
+    }
   }
 }

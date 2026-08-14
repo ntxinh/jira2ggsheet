@@ -1,19 +1,28 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { SyncCoordinator } from '../syncCoordinator'
 import { testEnv } from './mock-env'
-import { searchIssuesPage } from '../jira'
-import { syncSprintPage } from '../sheetWriter'
+import { searchIssuesPage, fetchSprintName } from '../jira'
+import { syncSprintPage, getSheets, renameSprintTabs } from '../sheetWriter'
 import { captureException } from '@sentry/cloudflare'
 
-vi.mock('../jira', () => ({ searchIssuesPage: vi.fn() }))
-vi.mock('../sheetWriter', () => ({
-  syncSprintPage: vi.fn(),
-  withStoredToken: vi.fn(async (_s: unknown, _e: string, _k: string, fn: (t: string) => Promise<void>) => fn('token')),
-}))
+vi.mock('../jira', () => ({ searchIssuesPage: vi.fn(), fetchSprintName: vi.fn() }))
+vi.mock('../sheetWriter', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../sheetWriter')>()
+  return {
+    ...actual,
+    syncSprintPage: vi.fn(),
+    withStoredToken: vi.fn(async (_s: unknown, _e: string, _k: string, fn: (t: string) => Promise<void>) => fn('token')),
+    getSheets: vi.fn(),
+    renameSprintTabs: vi.fn(),
+  }
+})
 vi.mock('@sentry/cloudflare', () => ({ captureException: vi.fn() }))
 
 const searchIssuesPageMock = vi.mocked(searchIssuesPage)
+const fetchSprintNameMock = vi.mocked(fetchSprintName)
 const syncSprintPageMock = vi.mocked(syncSprintPage)
+const getSheetsMock = vi.mocked(getSheets)
+const renameSprintTabsMock = vi.mocked(renameSprintTabs)
 const captureExceptionMock = vi.mocked(captureException)
 
 function makeState() {
@@ -103,6 +112,62 @@ describe('kick', () => {
     const stored = state.map.get('sync') as { pagesDone: number; nextPageToken?: string }
     expect(stored.pagesDone).toBe(0)
     expect(stored.nextPageToken).toBeUndefined()
+  })
+})
+
+describe('kick with sprint-name sweep', () => {
+  const tabs = [
+    { sheetId: 1, title: 'Template' },
+    { sheetId: 2, title: '7_OldName' },
+    { sheetId: 3, title: '8_S2' },
+    { sheetId: 4, title: 'not-a-sprint-tab' },
+  ]
+
+  beforeEach(() => {
+    getSheetsMock.mockResolvedValue(tabs)
+    renameSprintTabsMock.mockResolvedValue()
+  })
+
+  it('renames mismatched sprint tabs before starting the sync', async () => {
+    fetchSprintNameMock.mockImplementation(async (id: string) =>
+      id === '7' ? 'NewName' : id === '8' ? 'S2' : '')
+    const state = makeState()
+
+    await expect(makeCoordinator(state).kick()).resolves.toEqual({ status: 'started', sprintId: '42' })
+
+    // template excluded, non-sprint tab excluded, matching tab skipped
+    expect(renameSprintTabsMock).toHaveBeenCalledWith('fake-spreadsheet-id', [
+      { sheetId: 2, title: '7_NewName' },
+    ], 'token')
+    expect(state.map.has('sync')).toBe(true) // page sync still started
+  })
+
+  it('skips sprint lookups that fail (404) without failing the sweep or the sync', async () => {
+    fetchSprintNameMock.mockRejectedValue(new Error('Jira sprint 404'))
+    const state = makeState()
+
+    await expect(makeCoordinator(state).kick()).resolves.toEqual({ status: 'started', sprintId: '42' })
+
+    expect(renameSprintTabsMock).toHaveBeenCalledWith('fake-spreadsheet-id', [], 'token')
+    expect(state.map.has('sync')).toBe(true)
+  })
+
+  it('a sweep failure never blocks the page sync from starting', async () => {
+    getSheetsMock.mockRejectedValue(new Error('sheets down'))
+    const state = makeState()
+
+    await expect(makeCoordinator(state).kick()).resolves.toEqual({ status: 'started', sprintId: '42' })
+    expect(state.map.has('sync')).toBe(true)
+  })
+
+  it('skips the sweep while a fresh sync is in progress', async () => {
+    const state = makeState()
+    await state.storage.put('sync', runningState())
+
+    await expect(makeCoordinator(state).kick('99')).resolves.toEqual({ status: 'in_progress', sprintId: '42' })
+
+    expect(getSheetsMock).not.toHaveBeenCalled()
+    expect(renameSprintTabsMock).not.toHaveBeenCalled()
   })
 })
 
