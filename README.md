@@ -2,7 +2,7 @@
 
 Sync Jira Cloud issues to a Google Sheet in near real-time. Two runtimes:
 
-- **Google Apps Script** (legacy backup) — free, zero servers
+- **Google Apps Script** (deprecated, legacy backup) — free, zero servers
 - **Cloudflare Worker** (recommended) — faster, typed, deploy via `wrangler`
 
 **How it works:** a Jira webhook fires on issue create/update/delete and POSTs
