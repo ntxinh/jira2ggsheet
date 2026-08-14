@@ -3,6 +3,8 @@ import type { Config } from './config';
 import type { Sprint, JiraIssue } from './fieldExtractor';
 import { columnLetterToIndex, indexToColumnLetter, pickSprint, extractField } from './fieldExtractor';
 
+const SHEETS_API_BASE = 'https://sheets.googleapis.com/v4';
+
 export interface SheetInfo {
   sheetId: number;
   title: string;
@@ -39,7 +41,7 @@ export function sprintSheetName(sprint: Sprint): string {
 export async function getSheets(spreadsheetId: string, token: string): Promise<SheetInfo[]> {
   const data = await apiFetch(
     token,
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`,
+    `${SHEETS_API_BASE}/spreadsheets/${spreadsheetId}`,
   ) as { sheets: Array<{ properties: { sheetId: number; title: string } }> };
   return data.sheets.map(s => ({ sheetId: s.properties.sheetId, title: s.properties.title }));
 }
@@ -60,7 +62,7 @@ async function getOrCreateSprintSheet(
       if (sheet.title !== target) {
         await apiFetch(
           token,
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+          `${SHEETS_API_BASE}/spreadsheets/${spreadsheetId}:batchUpdate`,
           {
             method: 'POST',
             body: JSON.stringify({
@@ -84,7 +86,7 @@ async function getOrCreateSprintSheet(
 
   const dupResult = await apiFetch(
     token,
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+    `${SHEETS_API_BASE}/spreadsheets/${spreadsheetId}:batchUpdate`,
     {
       method: 'POST',
       body: JSON.stringify({
@@ -118,7 +120,7 @@ async function readKeyColumns(
   // 100 rows based on these keys, and treating them as empty would duplicate every row.
   const data = await apiFetch(
     token,
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?${params}`,
+    `${SHEETS_API_BASE}/spreadsheets/${spreadsheetId}/values:batchGet?${params}`,
   ) as { valueRanges?: Array<{ values?: string[][] }> };
   const map = new Map<string, string[]>();
   sheetTitles.forEach((title, i) => {
@@ -162,7 +164,7 @@ async function writeRowRange(
   );
   await apiFetch(
     token,
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?valueInputOption=USER_ENTERED`,
+    `${SHEETS_API_BASE}/spreadsheets/${spreadsheetId}/values/${range}?valueInputOption=USER_ENTERED`,
     { method: 'PUT', body: JSON.stringify({ values: [values] }) },
   );
 }
@@ -175,7 +177,7 @@ async function deleteRowByIndex(
 ): Promise<void> {
   await apiFetch(
     token,
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+    `${SHEETS_API_BASE}/spreadsheets/${spreadsheetId}:batchUpdate`,
     {
       method: 'POST',
       body: JSON.stringify({
@@ -201,7 +203,7 @@ async function markStatus(
     const range = encodeURIComponent(`${sheetTitle}!${letter}${row}`);
     await apiFetch(
       token,
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?valueInputOption=RAW`,
+      `${SHEETS_API_BASE}/spreadsheets/${spreadsheetId}/values/${range}?valueInputOption=RAW`,
       { method: 'PUT', body: JSON.stringify({ values: [['Deleted']] }) },
     );
     return;
@@ -224,7 +226,7 @@ export async function renameSprintTabs(
   if (renames.length === 0) return;
   await apiFetch(
     token,
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+    `${SHEETS_API_BASE}/spreadsheets/${spreadsheetId}:batchUpdate`,
     {
       method: 'POST',
       body: JSON.stringify({
@@ -354,7 +356,7 @@ export async function syncSprintPage(
   if (updates.length > 0) {
     await apiFetch(
       token,
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
+      `${SHEETS_API_BASE}/spreadsheets/${spreadsheetId}/values:batchUpdate`,
       {
         method: 'POST',
         body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: updates }),
@@ -377,7 +379,7 @@ export async function syncSprintPage(
       const sorted = [...new Set(rows)].sort((a, b) => b - a);
       await apiFetch(
         token,
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+        `${SHEETS_API_BASE}/spreadsheets/${spreadsheetId}:batchUpdate`,
         {
           method: 'POST',
           body: JSON.stringify({

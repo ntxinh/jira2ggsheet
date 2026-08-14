@@ -3,6 +3,8 @@ interface TokenCache {
   expiresAt: number;
 }
 
+const OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+
 let tokenCache: TokenCache | null = null;
 
 function base64UrlEncode(buf: Uint8Array): string {
@@ -40,7 +42,7 @@ export async function getAccessToken(
   const claim = {
     iss: email,
     scope,
-    aud: 'https://oauth2.googleapis.com/token',
+    aud: OAUTH_TOKEN_URL,
     exp: now + 3600,
     iat: now,
   };
@@ -67,7 +69,7 @@ export async function getAccessToken(
 
   const jwt = signatureInput + '.' + base64UrlEncode(new Uint8Array(sigBuf));
 
-  const res = await fetch('https://oauth2.googleapis.com/token', {
+  const res = await fetch(OAUTH_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({

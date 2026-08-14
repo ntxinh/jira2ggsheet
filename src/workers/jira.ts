@@ -2,6 +2,10 @@ import type { JiraIssue } from './fieldExtractor'
 
 const PAGE_SIZE = 100
 
+export function jiraBaseUrl(subdomain: string): string {
+  return `https://${subdomain}.atlassian.net`
+}
+
 export interface JiraPage {
   issues: JiraIssue[]
   nextPageToken?: string
@@ -21,7 +25,7 @@ export async function searchIssuesPage(
   nextPageToken?: string,
   fields = '*all',
 ): Promise<JiraPage> {
-  const base = `https://${subdomain}.atlassian.net/rest/api/3/search/jql`
+  const base = `${jiraBaseUrl(subdomain)}/rest/api/3/search/jql`
   const auth = 'Basic ' + btoa(`${email}:${apiToken}`)
   let url = `${base}?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields)}&maxResults=${PAGE_SIZE}`
   if (nextPageToken) url += `&nextPageToken=${encodeURIComponent(nextPageToken)}`
@@ -43,7 +47,7 @@ export async function fetchSprintName(
   email: string,
   apiToken: string,
 ): Promise<string> {
-  const url = `https://${subdomain}.atlassian.net/rest/agile/1.0/sprint/${sprintId}`
+  const url = `${jiraBaseUrl(subdomain)}/rest/agile/1.0/sprint/${sprintId}`
   const auth = 'Basic ' + btoa(`${email}:${apiToken}`)
   const res = await fetch(url, { headers: { Authorization: auth } })
   if (!res.ok) throw new Error(`Jira sprint ${res.status}: ${await res.text()}`)

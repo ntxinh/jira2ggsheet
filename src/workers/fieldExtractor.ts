@@ -1,3 +1,4 @@
+import { jiraBaseUrl } from './jira';
 import type { Config } from './config';
 
 export interface Sprint {
@@ -104,7 +105,7 @@ export const EXTRACTORS: Record<string, (issue: JiraIssue, config: Config, row: 
   sprintId: (issue, config) => pickSprintId(issue.fields[config.CUSTOM_FIELDS.sprint]),
   issueLink: (issue, config, row) => {
     const key = `$${config.KEY_COLUMN}${row}`;
-    return `=IF(${key}<>"",HYPERLINK(CONCATENATE("https://${config.JIRA_SUBDOMAIN}.atlassian.net/browse/",${key}),${key}),"")`;
+    return `=IF(${key}<>"",HYPERLINK(CONCATENATE("${jiraBaseUrl(config.JIRA_SUBDOMAIN)}/browse/",${key}),${key}),"")`;
   },
 };
 
