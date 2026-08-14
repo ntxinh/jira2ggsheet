@@ -13,22 +13,6 @@ export interface JiraPage {
 // alarm chain calls this once per tick and persists the cursor between ticks. `fields` defaults
 // to *all but callers should pass a narrow list — parsing a 100-issue page with every field
 // (comments, attachments, ...) can exceed the Free plan's 10ms CPU budget.
-// Jira Software Agile API: authoritative current sprint name even for empty/closed
-// sprints (issue-search JQL would miss them). Same Basic auth as searchIssuesPage.
-export async function fetchSprintName(
-  sprintId: string,
-  subdomain: string,
-  email: string,
-  apiToken: string,
-): Promise<string> {
-  const url = `https://${subdomain}.atlassian.net/rest/agile/1.0/sprint/${sprintId}`
-  const auth = 'Basic ' + btoa(`${email}:${apiToken}`)
-  const res = await fetch(url, { headers: { Authorization: auth } })
-  if (!res.ok) throw new Error(`Jira sprint ${res.status}: ${await res.text()}`)
-  const data = (await res.json()) as { name?: string }
-  return String(data.name ?? '')
-}
-
 export async function searchIssuesPage(
   jql: string,
   subdomain: string,
@@ -49,4 +33,20 @@ export async function searchIssuesPage(
     nextPageToken: data.nextPageToken,
     isLast: Boolean(data.isLast) || !data.nextPageToken,
   }
+}
+
+// Jira Software Agile API: authoritative current sprint name even for empty/closed
+// sprints (issue-search JQL would miss them). Same Basic auth as searchIssuesPage.
+export async function fetchSprintName(
+  sprintId: string,
+  subdomain: string,
+  email: string,
+  apiToken: string,
+): Promise<string> {
+  const url = `https://${subdomain}.atlassian.net/rest/agile/1.0/sprint/${sprintId}`
+  const auth = 'Basic ' + btoa(`${email}:${apiToken}`)
+  const res = await fetch(url, { headers: { Authorization: auth } })
+  if (!res.ok) throw new Error(`Jira sprint ${res.status}: ${await res.text()}`)
+  const data = (await res.json()) as { name?: string }
+  return String(data.name ?? '')
 }
