@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { searchIssuesPage } from '../jira'
+import { searchIssuesPage, fetchSprintName } from '../jira'
 import type { JiraIssue } from '../fieldExtractor'
 
 const PAGE_SIZE = 100
@@ -76,5 +76,27 @@ describe('searchIssuesPage', () => {
   it('throws on non-OK response', async () => {
     vi.stubGlobal('fetch', vi.fn(() => new Response('nope', { status: 401 })))
     await expect(searchIssuesPage('x', 'acme', 'a', 'b')).rejects.toThrow('Jira search 401')
+  })
+})
+
+describe('fetchSprintName', () => {
+  it('fetches the sprint name from the Agile API with Basic auth', async () => {
+    const calls: { url: string; headers: Record<string, string> }[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, headers: (init?.headers ?? {}) as Record<string, string> })
+      return new Response(JSON.stringify({ id: 123, name: 'Sprint 12', state: 'active' }))
+    }))
+
+    const name = await fetchSprintName('123', 'acme', 'me@x.com', 'tok')
+
+    expect(calls.length).toBe(1)
+    expect(calls[0].url).toBe('https://acme.atlassian.net/rest/agile/1.0/sprint/123')
+    expect(calls[0].headers.Authorization).toBe('Basic ' + btoa('me@x.com:tok'))
+    expect(name).toBe('Sprint 12')
+  })
+
+  it('throws on non-OK response (e.g. sprint deleted → 404)', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Response('gone', { status: 404 })))
+    await expect(fetchSprintName('123', 'acme', 'a', 'b')).rejects.toThrow('Jira sprint 404')
   })
 })
