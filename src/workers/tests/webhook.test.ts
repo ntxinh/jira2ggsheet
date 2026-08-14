@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import index from '../index'
 import { testEnv, makeCoordinatorNamespace } from './mock-env'
 import type { KickResult } from '../syncCoordinator'
 import { captureException } from '@sentry/cloudflare'
+import { isWithinTicketWindow } from '../chat'
 
 vi.mock('../sheetWriter', () => ({
   upsertIssue: vi.fn().mockResolvedValue(undefined),
@@ -142,6 +143,11 @@ describe('Google Chat notifications', () => {
     vi.restoreAllMocks()
   })
 
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-10T01:00:00Z')) // Mon 08:00 Vietnam (UTC+7)
+  })
+
   it('posts a notification with issue details when GOOGLE_CHAT_WEBHOOK is set', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'))
     const { ctx, pending } = captureWaitUntil()
@@ -185,6 +191,28 @@ describe('Google Chat notifications', () => {
     expect(fetchSpy.mock.calls[0][0]).toBe(chatUrl)
   })
 
+  it('posts issue_created outside the weekday 8-18h window to GOOGLE_CHAT_WEBHOOK', async () => {
+    vi.setSystemTime(new Date('2026-08-10T11:00:00Z')) // Mon 18:00 Vietnam
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'))
+    const { ctx, pending } = captureWaitUntil()
+
+    const res = await index.fetch(webhookRequest(fullPayload), chatEnv, ctx)
+    await Promise.all(pending)
+
+    expect(fetchSpy.mock.calls[0][0]).toBe(chatUrl)
+  })
+
+  it('posts issue_created on a weekend to GOOGLE_CHAT_WEBHOOK', async () => {
+    vi.setSystemTime(new Date('2026-08-15T01:00:00Z')) // Sat 08:00 Vietnam
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'))
+    const { ctx, pending } = captureWaitUntil()
+
+    const res = await index.fetch(webhookRequest(fullPayload), chatEnv, ctx)
+    await Promise.all(pending)
+
+    expect(fetchSpy.mock.calls[0][0]).toBe(chatUrl)
+  })
+
   it('posts even for ignored webhooks (every valid POST)', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'))
     const { ctx, pending } = captureWaitUntil()
@@ -219,7 +247,32 @@ describe('Google Chat notifications', () => {
 
     expect(res.status).toBe(200)
     expect(fetchSpy).toHaveBeenCalledTimes(1)
-    expect(vi.mocked(captureException)).toHaveBeenCalledWith(expect.any(Error))
+    expect(captureException).toHaveBeenCalledWith(expect.any(Error))
+  })
+})
+
+describe('isWithinTicketWindow', () => {
+  it('is true on a weekday between 08:00 and 18:00 Vietnam time', () => {
+    expect(isWithinTicketWindow(new Date('2026-08-10T01:00:00Z'))).toBe(true) // Mon 08:00
+    expect(isWithinTicketWindow(new Date('2026-08-14T10:59:00Z'))).toBe(true) // Fri 17:59
+  })
+
+  it('is false at or after 18:00 Vietnam time', () => {
+    expect(isWithinTicketWindow(new Date('2026-08-10T11:00:00Z'))).toBe(false) // Mon 18:00
+    expect(isWithinTicketWindow(new Date('2026-08-10T13:30:00Z'))).toBe(false) // Mon 20:30
+  })
+
+  it('is false before 08:00 Vietnam time', () => {
+    expect(isWithinTicketWindow(new Date('2026-08-10T00:59:00Z'))).toBe(false) // Mon 07:59
+  })
+
+  it('is false on weekends', () => {
+    expect(isWithinTicketWindow(new Date('2026-08-15T01:00:00Z'))).toBe(false) // Sat 08:00
+    expect(isWithinTicketWindow(new Date('2026-08-16T06:00:00Z'))).toBe(false) // Sun 13:00
+  })
+
+  it('is false in the small hours when the UTC date is still the previous (weekend) day', () => {
+    expect(isWithinTicketWindow(new Date('2026-08-09T17:00:00Z'))).toBe(false) // Sun 24:00 = Mon 00:00 VN
   })
 })
 

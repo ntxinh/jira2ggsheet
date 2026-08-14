@@ -8,14 +8,26 @@ const EVENT_ICONS: Record<string, string> = {
   'jira:issue_deleted': '🗑️',
 }
 
+// Vietnam is UTC+7 year-round (no DST). Shifting the Date keeps the weekday and hour correct
+// even when the UTC date differs from the local one (e.g. 00:00 Mon Vietnam is Sun 17:00 UTC).
+const VIETNAM_OFFSET_MS = 7 * 60 * 60 * 1000
+
+// True for 08:00 <= hh < 18:00 on Monday-Friday, Vietnam time. Exported for tests.
+export function isWithinTicketWindow(now: Date): boolean {
+  const local = new Date(now.getTime() + VIETNAM_OFFSET_MS)
+  const day = local.getUTCDay()
+  const hour = local.getUTCHours()
+  return day >= 1 && day <= 5 && hour >= 8 && hour < 18
+}
+
 // Posts a one-line-per-detail summary of a received Jira webhook to the configured Google Chat
 // space. issue_created goes to NEW_TICKET_GOOGLE_CHAT_WEBHOOK (falling back to
-// GOOGLE_CHAT_WEBHOOK), everything else to GOOGLE_CHAT_WEBHOOK. No-op when no webhook is set;
-// failures are reported to Sentry and never affect the webhook response (call via waitUntil,
-// not awaited).
+// GOOGLE_CHAT_WEBHOOK) only within the weekday 08:00-18:00 Vietnam window, everything else to
+// GOOGLE_CHAT_WEBHOOK. No-op when no webhook is set; failures are reported to Sentry and never
+// affect the webhook response (call via waitUntil, not awaited).
 export async function postChatNotification(env: Env, payload: JiraWebhookPayload): Promise<void> {
   const webhookUrl =
-    payload.webhookEvent === 'jira:issue_created'
+    payload.webhookEvent === 'jira:issue_created' && isWithinTicketWindow(new Date())
       ? env.NEW_TICKET_GOOGLE_CHAT_WEBHOOK ?? env.GOOGLE_CHAT_WEBHOOK
       : env.GOOGLE_CHAT_WEBHOOK
   if (!webhookUrl) return
