@@ -7,7 +7,7 @@ export interface Config {
   HEADER_ROWS: number;
   DELETE_MODE: 'delete' | 'mark';
   PROJECT_KEY: string;
-  SPRINT_ID: string;
+  SPRINT_IDS: string[]; // parsed from the comma-separated SPRINT_ID var
   JIRA_SUBDOMAIN: string;
   COLUMN_MAP: Record<string, string>;
   CUSTOM_FIELDS: {
@@ -41,6 +41,15 @@ export interface Env {
   SENTRY_DSN?: string;
 }
 
+// SPRINT_ID is a comma-separated list of sprint IDs (e.g. "690,691"); the cron syncs
+// each one fully, one after another. Empty entries and whitespace are ignored.
+export function parseSprintIds(raw: string | undefined): string[] {
+  return (raw ?? '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0)
+}
+
 export function getConfig(env: Env): Config {
   return {
     SPREADSHEET_ID: env.SPREADSHEET_ID,
@@ -49,7 +58,7 @@ export function getConfig(env: Env): Config {
     HEADER_ROWS: parseInt(env.HEADER_ROWS, 10),
     DELETE_MODE: env.DELETE_MODE as 'delete' | 'mark',
     PROJECT_KEY: env.PROJECT_KEY,
-    SPRINT_ID: env.SPRINT_ID,
+    SPRINT_IDS: parseSprintIds(env.SPRINT_ID),
     JIRA_SUBDOMAIN: env.JIRA_SUBDOMAIN,
     COLUMN_MAP: JSON.parse(env.COLUMN_MAP_JSON),
     CUSTOM_FIELDS: {

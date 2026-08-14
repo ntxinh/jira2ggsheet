@@ -49,6 +49,7 @@ function makeCoordinator(state: FakeState, env = testEnv): SyncCoordinator {
 function runningState(overrides: Record<string, unknown> = {}) {
   return {
     sprintId: '42',
+    sprintQueue: [],
     nextPageToken: 'page-2',
     pagesDone: 1,
     rowsWritten: 100,
@@ -91,6 +92,27 @@ describe('kick', () => {
 
     const stored = state.map.get('sync') as { sprintId: string }
     expect(stored.sprintId).toBe('99')
+  })
+
+  it('syncs a comma-separated SPRINT_ID list sequentially', async () => {
+    const state = makeState()
+    const coordinator = makeCoordinator(state, { ...testEnv, SPRINT_ID: '42, 43,44' })
+
+    await expect(coordinator.kick()).resolves.toEqual({ status: 'started', sprintId: '42' })
+
+    const stored = state.map.get('sync') as { sprintId: string; sprintQueue: string[] }
+    expect(stored.sprintId).toBe('42')
+    expect(stored.sprintQueue).toEqual(['43', '44'])
+  })
+
+  it('returns idle (no sync) when SPRINT_ID is empty', async () => {
+    const state = makeState()
+    const coordinator = makeCoordinator(state, { ...testEnv, SPRINT_ID: ' , ' })
+
+    await expect(coordinator.kick()).resolves.toEqual({ status: 'idle' })
+
+    expect(state.map.has('sync')).toBe(false)
+    expect(state.getAlarm()).toBeNull()
   })
 
   it('leaves a fresh in-progress sync alone', async () => {
@@ -224,6 +246,31 @@ describe('alarm', () => {
 
     expect(state.map.has('sync')).toBe(false)
     expect(state.getAlarm()).toBeNull() // no next tick scheduled
+  })
+
+  it('moves to the next queued sprint when one finishes, keeping the run alive', async () => {
+    const state = makeState()
+    await state.storage.put('sync', runningState({ sprintId: '42', sprintQueue: ['43'], nextPageToken: 'page-9' }))
+    searchIssuesPageMock.mockResolvedValueOnce({ issues: [{ key: 'ABC-1', fields: {} }], nextPageToken: undefined, isLast: true })
+    const coordinator = makeCoordinator(state)
+
+    await coordinator.alarm()
+
+    const stored = state.map.get('sync') as {
+      sprintId: string
+      sprintQueue: string[]
+      nextPageToken?: string
+      pagesDone: number
+      rowsWritten: number
+      failures: number
+    }
+    expect(stored.sprintId).toBe('43')
+    expect(stored.sprintQueue).toEqual([])
+    expect(stored.nextPageToken).toBeUndefined() // fresh page cursor for the next sprint
+    expect(stored.pagesDone).toBe(2) // cumulative across the run
+    expect(stored.rowsWritten).toBe(101)
+    expect(stored.failures).toBe(0)
+    expect(state.getAlarm()).not.toBeNull() // chain continues
   })
 
   it('keeps the cursor and reschedules with backoff on failure', async () => {

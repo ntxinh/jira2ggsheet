@@ -1,7 +1,7 @@
 import { OpenAPIHono, createRoute } from '@hono/zod-openapi'
 import { apiReference } from '@scalar/hono-api-reference'
 import * as Sentry from '@sentry/cloudflare'
-import { getConfig, type Env } from './config'
+import { getConfig, parseSprintIds, type Env } from './config'
 import { upsertIssue, deleteIssue, withToken } from './sheetWriter'
 import type { SyncCoordinator } from './syncCoordinator'
 import { JiraWebhookPayloadSchema, WebhookQuerySchema, SyncQuerySchema } from './schema'
@@ -42,7 +42,7 @@ const syncRoute = createRoute({
   method: 'get',
   path: '/sync',
   summary: 'Manually trigger sprint sync',
-  description: 'Kicks the SyncCoordinator Durable Object to sync a sprint. If a sync is already running it is left alone (status "in_progress"). The alarm chain then processes one Jira page per tick, so the request returns immediately — poll GET /sync/status for progress. Pass sprintId as a query param, or omit it to use the configured SPRINT_ID.',
+  description: 'Kicks the SyncCoordinator Durable Object to sync sprint(s). If a sync is already running it is left alone (status "in_progress"). The alarm chain then processes one Jira page per tick, so the request returns immediately — poll GET /sync/status for progress. Pass a single sprintId as a query param, or omit it to sync the configured SPRINT_ID list (comma-separated) one sprint after another.',
   tags: ['Sync'],
   request: {
     query: SyncQuerySchema,
@@ -135,12 +135,13 @@ app.openapi(webhookRoute, async (c) => {
 
 app.openapi(syncRoute, async (c) => {
   const { sprintId } = c.req.valid('query')
-  const id = sprintId ?? c.env.SPRINT_ID
+  const sprintIds = sprintId ? [sprintId] : parseSprintIds(c.env.SPRINT_ID)
+  const id = sprintIds[0]
   try {
-    const result = await coordinator(c.env).kick(id)
+    const result = await coordinator(c.env).kick(sprintId)
     // When a different sprint is already syncing, say so instead of implying the requested one is.
     const runningSprintId = result.status === 'in_progress' && result.sprintId !== id ? result.sprintId : undefined
-    return c.json({ sprintId: id, status: result.status, ...(runningSprintId ? { runningSprintId } : {}) })
+    return c.json({ sprintId: id, sprintIds, status: result.status, ...(runningSprintId ? { runningSprintId } : {}) })
   } catch (err) {
     console.error('Manual sync failed: ' + err)
     Sentry.captureException(err)

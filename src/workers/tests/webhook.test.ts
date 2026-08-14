@@ -159,7 +159,7 @@ describe('GET /sync — manual sprint sync', () => {
 
     const res = await index.fetch(new Request(new URL('/sync?sprintId=99', 'http://localhost'), { method: 'GET' }), env)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ sprintId: '99', status: 'started' })
+    expect(await res.json()).toEqual({ sprintId: '99', sprintIds: ['99'], status: 'started' })
     expect(kick).toHaveBeenCalledWith('99')
   })
 
@@ -169,8 +169,18 @@ describe('GET /sync — manual sprint sync', () => {
 
     const res = await index.fetch(new Request(new URL('/sync', 'http://localhost'), { method: 'GET' }), env)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ sprintId: '42', status: 'started' })
-    expect(kick).toHaveBeenCalledWith('42')
+    expect(await res.json()).toEqual({ sprintId: '42', sprintIds: ['42'], status: 'started' })
+    expect(kick).toHaveBeenCalledWith(undefined) // kick resolves the env list itself
+  })
+
+  it('syncs a comma-separated SPRINT_ID list when sprintId omitted', async () => {
+    const kick = vi.fn(async (): Promise<KickResult> => ({ status: 'started', sprintId: '42' }))
+    const env = { ...testEnv, SPRINT_ID: '42,43', SYNC_COORDINATOR: makeCoordinatorNamespace({ kick }) }
+
+    const res = await index.fetch(new Request(new URL('/sync', 'http://localhost'), { method: 'GET' }), env)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ sprintId: '42', sprintIds: ['42', '43'], status: 'started' })
+    expect(kick).toHaveBeenCalledWith(undefined)
   })
 
   it('reports in_progress when a sync is already running', async () => {
@@ -178,7 +188,7 @@ describe('GET /sync — manual sprint sync', () => {
 
     const res = await index.fetch(new Request(new URL('/sync?sprintId=99', 'http://localhost'), { method: 'GET' }), env)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ sprintId: '99', status: 'in_progress' })
+    expect(await res.json()).toEqual({ sprintId: '99', sprintIds: ['99'], status: 'in_progress' })
   })
 
   it('reports which sprint is actually running when a different one is requested', async () => {
@@ -186,7 +196,7 @@ describe('GET /sync — manual sprint sync', () => {
 
     const res = await index.fetch(new Request(new URL('/sync?sprintId=99', 'http://localhost'), { method: 'GET' }), env)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ sprintId: '99', status: 'in_progress', runningSprintId: '42' })
+    expect(await res.json()).toEqual({ sprintId: '99', sprintIds: ['99'], status: 'in_progress', runningSprintId: '42' })
   })
 
   it('returns 400 for a non-numeric sprintId', async () => {

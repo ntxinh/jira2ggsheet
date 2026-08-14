@@ -5,7 +5,8 @@ import { searchIssuesPage, fetchSprintName } from './jira'
 import { syncSprintPage, withStoredToken, getSheets, sprintSheetName, renameSprintTabs } from './sheetWriter'
 
 interface SyncState {
-  sprintId: string
+  sprintId: string // the sprint currently being synced
+  sprintQueue: string[] // remaining sprints to sync after the current one
   nextPageToken?: string
   pagesDone: number
   rowsWritten: number
@@ -24,8 +25,8 @@ export interface SyncStatus {
 }
 
 export interface KickResult {
-  status: 'started' | 'in_progress'
-  sprintId: string // the sprint the sync is actually for (may differ from the requested one)
+  status: 'started' | 'in_progress' | 'idle' // idle = nothing to do (no sprints configured)
+  sprintId?: string // the sprint the sync is actually for (may differ from the requested one)
 }
 
 const STATE_KEY = 'sync'
@@ -67,15 +68,19 @@ export class SyncCoordinator extends DurableObject<Env> {
 
   // Cron and GET /sync both land here. Starts a fresh sync when idle; keeps an in-progress one
   // running; restarts one whose marker has gone stale. The actual work happens in alarm ticks.
+  // An explicit sprintId syncs just that sprint; otherwise the configured SPRINT_ID list (which
+  // may hold several comma-separated IDs) is synced sequentially, one sprint after another.
   async kick(sprintId?: string): Promise<KickResult> {
-    const id = sprintId ?? this.env.SPRINT_ID
+    const ids = sprintId ? [sprintId] : this.config.SPRINT_IDS
+    if (ids.length === 0) return { status: 'idle' }
     const existing = await this.ctx.storage.get<SyncState>(STATE_KEY)
     if (existing && Date.now() - existing.updatedAt < STALE_MS) {
       return { status: 'in_progress', sprintId: existing.sprintId }
     }
     await this.syncTabNames()
     await this.ctx.storage.put<SyncState>(STATE_KEY, {
-      sprintId: id,
+      sprintId: ids[0],
+      sprintQueue: ids.slice(1),
       pagesDone: 0,
       rowsWritten: 0,
       startedAt: Date.now(),
@@ -83,7 +88,7 @@ export class SyncCoordinator extends DurableObject<Env> {
       failures: 0,
     })
     await this.ctx.storage.setAlarm(Date.now() + FIRST_TICK_MS)
-    return { status: 'started', sprintId: id }
+    return { status: 'started', sprintId: ids[0] }
   }
 
   async getStatus(): Promise<SyncStatus> {
@@ -108,10 +113,26 @@ export class SyncCoordinator extends DurableObject<Env> {
     try {
       const { nextPageToken, rowsWritten, isLast } = await this.processPage(state)
       if (isLast) {
-        await this.ctx.storage.delete(STATE_KEY)
         console.log(
           `Sync complete for sprint ${state.sprintId}: ${state.pagesDone + 1} pages, ${state.rowsWritten + rowsWritten} rows`,
         )
+        const nextSprint = state.sprintQueue[0]
+        if (nextSprint) {
+          // More sprints queued: move to the next one (fresh page cursor), keeping the run alive.
+          await this.ctx.storage.put<SyncState>(STATE_KEY, {
+            ...state,
+            sprintId: nextSprint,
+            sprintQueue: state.sprintQueue.slice(1),
+            nextPageToken: undefined,
+            pagesDone: state.pagesDone + 1,
+            rowsWritten: state.rowsWritten + rowsWritten,
+            updatedAt: Date.now(),
+            failures: 0,
+          })
+          await this.ctx.storage.setAlarm(Date.now() + FIRST_TICK_MS)
+          return
+        }
+        await this.ctx.storage.delete(STATE_KEY)
         return
       }
       await this.ctx.storage.put<SyncState>(STATE_KEY, {

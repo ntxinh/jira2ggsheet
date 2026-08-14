@@ -12,7 +12,7 @@ const config: Config = {
   HEADER_ROWS: 1,
   DELETE_MODE: 'delete',
   PROJECT_KEY: 'TEST',
-  SPRINT_ID: '7',
+  SPRINT_IDS: ['7'],
   JIRA_SUBDOMAIN: 'acme',
   COLUMN_MAP: { B: 'issueKey', C: 'sprintId' },
   CUSTOM_FIELDS: { sprint: 'customfield_10016', storyPoints: 'customfield_10018' },

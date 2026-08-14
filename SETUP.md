@@ -71,8 +71,10 @@ npx wrangler secret put SENTRY_DSN
 
 Adjust variables in the Cloudflare dashboard (Settings → Variables):
 `PROJECT_KEY`, `TEMPLATE_SHEET`, `COLUMN_MAP_JSON`, `CUSTOM_FIELDS_*`,
-`TIMEZONE`, `DELETE_MODE`, `SPRINT_ID`, etc. Deploys keep existing
-Cloudflare variables (`wrangler deploy --keep-vars`) and never overwrite them.
+`TIMEZONE`, `DELETE_MODE`, `SPRINT_ID`, etc. `SPRINT_ID` accepts a
+comma-separated list (`SPRINT_ID=690,691`) — the cron syncs each listed sprint
+fully, one after another. Deploys keep existing Cloudflare variables
+(`wrangler deploy --keep-vars`) and never overwrite them.
 
 ```bash
 npx wrangler deploy --keep-vars
