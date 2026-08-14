@@ -21,3 +21,5 @@ COLUMN_MAP_JSON={"B":"issueKey","C":"issueLink","D":"issueType","E":"priority","
 SPRINT_ID=690,691
 
 # SENTRY_DSN=https://PLACEHOLDER_1@PLACEHOLDER_2.ingest.us.sentry.io/PLACEHOLDER_3  # uncomment to enable local Sentry reporting
+
+# GOOGLE_CHAT_WEBHOOK=https://chat.googleapis.com/v1/spaces/SPACE_ID/messages?key=YOUR_KEY&token=YOUR_TOKEN  # uncomment to post a notification to a Chat space per Jira webhook (keep the real URL in .dev.vars, not here)

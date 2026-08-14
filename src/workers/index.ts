@@ -3,6 +3,7 @@ import { apiReference } from '@scalar/hono-api-reference'
 import * as Sentry from '@sentry/cloudflare'
 import { getConfig, parseSprintIds, type Env } from './config'
 import { upsertIssue, deleteIssue, withToken } from './sheetWriter'
+import { postChatNotification } from './chat'
 import type { SyncCoordinator } from './syncCoordinator'
 import { JiraWebhookPayloadSchema, WebhookQuerySchema, SyncQuerySchema } from './schema'
 
@@ -115,6 +116,14 @@ app.openapi(webhookRoute, async (c) => {
   }
 
   const payload = c.req.valid('json')
+
+  // Fire-and-forget: notify the Chat space for every valid webhook, never blocking the response.
+  try {
+    c.executionCtx?.waitUntil(postChatNotification(c.env, payload))
+  } catch {
+    // No executionCtx in this environment; run the notification inline so it still fires.
+    void postChatNotification(c.env, payload)
+  }
 
   try {
     const work = handleWebhook(payload, c.env)

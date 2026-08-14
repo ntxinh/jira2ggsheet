@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import index from '../index'
 import { testEnv, makeCoordinatorNamespace } from './mock-env'
 import type { KickResult } from '../syncCoordinator'
+import { captureException } from '@sentry/cloudflare'
 
 vi.mock('../sheetWriter', () => ({
   upsertIssue: vi.fn().mockResolvedValue(undefined),
@@ -94,6 +95,107 @@ describe('POST / — Jira webhook', () => {
     }), testEnv)
     expect(res.status).toBe(200)
     expect(await res.text()).toBe('ok')
+  })
+})
+
+describe('Google Chat notifications', () => {
+  const chatUrl = 'https://chat.googleapis.com/v1/spaces/FAKE/messages?key=fake&token=fake'
+  const chatEnv = { ...testEnv, GOOGLE_CHAT_WEBHOOK: chatUrl }
+
+  const fullPayload = {
+    webhookEvent: 'jira:issue_created',
+    issue: {
+      key: 'TEST-1',
+      fields: {
+        project: { key: 'TEST' },
+        summary: 'Fix login bug',
+        issuetype: { name: 'Bug' },
+        status: { name: 'In Progress' },
+        priority: { name: 'High' },
+        assignee: { displayName: 'John Doe' },
+        customfield_10016: [{ id: 123, name: 'Sprint 1' }],
+      },
+    },
+  }
+
+  function webhookRequest(body: unknown): Parameters<typeof index.fetch>[0] {
+    return new Request(new URL('/?token=test-token', 'http://localhost'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }) as Parameters<typeof index.fetch>[0]
+  }
+
+  // The route fires notifications via c.executionCtx.waitUntil, so capture the promises and
+  // await them to observe the side effect (mirrors the Worker runtime's waitUntil semantics).
+  function captureWaitUntil(): { ctx: ExecutionContext; pending: Promise<unknown>[] } {
+    const pending: Promise<unknown>[] = []
+    const ctx = {
+      waitUntil: (p: Promise<unknown>) => { pending.push(p) },
+      passThroughOnException: () => {},
+    } as unknown as ExecutionContext
+    return { ctx, pending }
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('posts a notification with issue details when GOOGLE_CHAT_WEBHOOK is set', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'))
+    const { ctx, pending } = captureWaitUntil()
+
+    const res = await index.fetch(webhookRequest(fullPayload), chatEnv, ctx)
+    await Promise.all(pending)
+
+    expect(res.status).toBe(200)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchSpy.mock.calls[0]
+    expect(url).toBe(chatUrl)
+    const body = JSON.parse(init?.body as string)
+    expect(body.text).toContain('jira:issue_created — TEST-1')
+    expect(body.text).toContain('Fix login bug')
+    expect(body.text).toContain('Bug · In Progress · High')
+    expect(body.text).toContain('Assignee: John Doe')
+    expect(body.text).toContain('Sprint: Sprint 1')
+    expect(body.text).toContain('https://acme.atlassian.net/browse/TEST-1')
+  })
+
+  it('posts even for ignored webhooks (every valid POST)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'))
+    const { ctx, pending } = captureWaitUntil()
+
+    const res = await index.fetch(webhookRequest({
+      webhookEvent: 'jira:issue_created',
+      issue: { key: 'OTHER-1', fields: { project: { key: 'OTHER' } } },
+    }), chatEnv, ctx)
+    await Promise.all(pending)
+
+    expect(res.status).toBe(200)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not post when GOOGLE_CHAT_WEBHOOK is unset', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'))
+    const { ctx, pending } = captureWaitUntil()
+
+    const res = await index.fetch(webhookRequest(fullPayload), testEnv, ctx)
+    await Promise.all(pending)
+
+    expect(res.status).toBe(200)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('still returns ok and reports to Sentry when the Chat POST fails', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('chat down'))
+    const { ctx, pending } = captureWaitUntil()
+
+    const res = await index.fetch(webhookRequest(fullPayload), chatEnv, ctx)
+    await Promise.all(pending)
+
+    expect(res.status).toBe(200)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(captureException)).toHaveBeenCalledWith(expect.any(Error))
   })
 })
 
