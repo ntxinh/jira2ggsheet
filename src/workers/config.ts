@@ -40,6 +40,7 @@ export interface Env {
   SYNC_COORDINATOR: DurableObjectNamespace<SyncCoordinator>; // DO binding (wrangler.jsonc)
   SENTRY_DSN?: string;
   GOOGLE_CHAT_WEBHOOK?: string; // Google Chat incoming webhook; posts a notification per Jira webhook when set
+  NEW_TICKET_GOOGLE_CHAT_WEBHOOK?: string; // Google Chat incoming webhook for issue_created notifications; falls back to GOOGLE_CHAT_WEBHOOK when unset
 }
 
 // SPRINT_ID is a comma-separated list of sprint IDs (e.g. "690,691"); the cron syncs

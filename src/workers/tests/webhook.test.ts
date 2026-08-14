@@ -100,7 +100,8 @@ describe('POST / — Jira webhook', () => {
 
 describe('Google Chat notifications', () => {
   const chatUrl = 'https://chat.googleapis.com/v1/spaces/FAKE/messages?key=fake&token=fake'
-  const chatEnv = { ...testEnv, GOOGLE_CHAT_WEBHOOK: chatUrl }
+  const newTicketUrl = 'https://chat.googleapis.com/v1/spaces/FAKE/messages?key=fake&token=new'
+  const chatEnv = { ...testEnv, GOOGLE_CHAT_WEBHOOK: chatUrl, NEW_TICKET_GOOGLE_CHAT_WEBHOOK: newTicketUrl }
 
   const fullPayload = {
     webhookEvent: 'jira:issue_created',
@@ -151,7 +152,7 @@ describe('Google Chat notifications', () => {
     expect(res.status).toBe(200)
     expect(fetchSpy).toHaveBeenCalledTimes(1)
     const [url, init] = fetchSpy.mock.calls[0]
-    expect(url).toBe(chatUrl)
+    expect(url).toBe(newTicketUrl)
     const body = JSON.parse(init?.body as string)
     expect(body.text).toContain('jira:issue_created — TEST-1')
     expect(body.text).toContain('Fix login bug')
@@ -159,6 +160,29 @@ describe('Google Chat notifications', () => {
     expect(body.text).toContain('Assignee: John Doe')
     expect(body.text).toContain('Sprint: Sprint 1')
     expect(body.text).toContain('https://acme.atlassian.net/browse/TEST-1')
+  })
+
+  it('posts issue_created to NEW_TICKET_GOOGLE_CHAT_WEBHOOK instead', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'))
+    const { ctx, pending } = captureWaitUntil()
+
+    const res = await index.fetch(webhookRequest(fullPayload), chatEnv, ctx)
+    await Promise.all(pending)
+
+    expect(res.status).toBe(200)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(fetchSpy.mock.calls[0][0]).toBe(newTicketUrl)
+  })
+
+  it('falls back to GOOGLE_CHAT_WEBHOOK for issue_created when NEW_TICKET_GOOGLE_CHAT_WEBHOOK is unset', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'))
+    const { ctx, pending } = captureWaitUntil()
+    const env = { ...chatEnv, NEW_TICKET_GOOGLE_CHAT_WEBHOOK: undefined }
+
+    const res = await index.fetch(webhookRequest(fullPayload), env, ctx)
+    await Promise.all(pending)
+
+    expect(fetchSpy.mock.calls[0][0]).toBe(chatUrl)
   })
 
   it('posts even for ignored webhooks (every valid POST)', async () => {

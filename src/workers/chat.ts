@@ -9,10 +9,15 @@ const EVENT_ICONS: Record<string, string> = {
 }
 
 // Posts a one-line-per-detail summary of a received Jira webhook to the configured Google Chat
-// space. No-op when GOOGLE_CHAT_WEBHOOK is unset; failures are reported to Sentry and never
-// affect the webhook response (call via waitUntil, not awaited).
+// space. issue_created goes to NEW_TICKET_GOOGLE_CHAT_WEBHOOK (falling back to
+// GOOGLE_CHAT_WEBHOOK), everything else to GOOGLE_CHAT_WEBHOOK. No-op when no webhook is set;
+// failures are reported to Sentry and never affect the webhook response (call via waitUntil,
+// not awaited).
 export async function postChatNotification(env: Env, payload: JiraWebhookPayload): Promise<void> {
-  const webhookUrl = env.GOOGLE_CHAT_WEBHOOK
+  const webhookUrl =
+    payload.webhookEvent === 'jira:issue_created'
+      ? env.NEW_TICKET_GOOGLE_CHAT_WEBHOOK ?? env.GOOGLE_CHAT_WEBHOOK
+      : env.GOOGLE_CHAT_WEBHOOK
   if (!webhookUrl) return
 
   try {
