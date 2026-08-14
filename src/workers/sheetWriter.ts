@@ -3,7 +3,7 @@ import type { Config } from './config';
 import type { Sprint, JiraIssue } from './fieldExtractor';
 import { columnLetterToIndex, indexToColumnLetter, pickSprint, extractField } from './fieldExtractor';
 
-interface SheetInfo {
+export interface SheetInfo {
   sheetId: number;
   title: string;
 }
@@ -31,12 +31,12 @@ async function apiFetch(token: string, url: string, options: RequestInit = {}): 
   }
 }
 
-function sprintSheetName(sprint: Sprint): string {
+export function sprintSheetName(sprint: Sprint): string {
   const safeName = String(sprint.name ?? '').replace(/[\[\]:\\/?*]/g, '-');
   return `${sprint.id}_${safeName}`.slice(0, 100);
 }
 
-async function getSheets(spreadsheetId: string, token: string): Promise<SheetInfo[]> {
+export async function getSheets(spreadsheetId: string, token: string): Promise<SheetInfo[]> {
   const data = await apiFetch(
     token,
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`,
@@ -73,6 +73,7 @@ async function getOrCreateSprintSheet(
             }),
           },
         );
+        return { sheetId: sheet.sheetId, title: target };
       }
       return sheet;
     }
@@ -206,6 +207,36 @@ async function markStatus(
     return;
   }
   throw new Error('DELETE_MODE "mark" requires a status column in COLUMN_MAP');
+}
+
+export interface TabRename {
+  sheetId: number;
+  title: string;
+}
+
+// Renames all mismatched sprint tabs in ONE batchUpdate (same batched pattern as the
+// page sync). No-op on an empty list so the sweep costs zero requests when nothing changed.
+export async function renameSprintTabs(
+  spreadsheetId: string,
+  renames: TabRename[],
+  token: string,
+): Promise<void> {
+  if (renames.length === 0) return;
+  await apiFetch(
+    token,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        requests: renames.map((r) => ({
+          updateSheetProperties: {
+            properties: { sheetId: r.sheetId, title: r.title },
+            fields: 'title',
+          },
+        })),
+      }),
+    },
+  );
 }
 
 export async function upsertIssue(

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { upsertIssue, syncSprintPage, withStoredToken } from '../sheetWriter'
+import { upsertIssue, syncSprintPage, withStoredToken, renameSprintTabs } from '../sheetWriter'
 import { getAccessToken } from '../auth'
 import type { Config } from '../config'
 
@@ -231,6 +231,66 @@ describe('syncSprintPage', () => {
     const result = await syncSprintPage(config.SPREADSHEET_ID, [{ key: 'TEST-9', fields: {} }], 'token', config)
     expect(result.rowsWritten).toBe(0)
     expect(calls).toHaveLength(0)
+  })
+})
+
+describe('getOrCreateSprintSheet rename', () => {
+  it('renames a renamed-sprint tab and writes rows to the new title', async () => {
+    const calls: Array<{ url: string; method: string | undefined; body?: unknown }> = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      calls.push({ url, method: init?.method, body: init?.body ? JSON.parse(String(init.body)) : undefined })
+      if (url.endsWith(`/spreadsheets/${config.SPREADSHEET_ID}`)) {
+        return json({ sheets: [{ properties: { sheetId: 2, title: '7_S1' } }] })
+      }
+      if (url.includes(':batchGet')) return json({ valueRanges: [{ values: [['HDR']] }] })
+      if (url.includes(':batchUpdate')) return json({ replies: [] })
+      return json({})
+    })
+
+    const issue = { key: 'TEST-1', fields: { customfield_10016: [{ id: 7, name: 'S1-Renamed', state: 'active' }] } }
+    await upsertIssue(config.SPREADSHEET_ID, issue, 'token', config)
+
+    const rename = calls.find((c) => c.url.includes(':batchUpdate') && (c.body as { requests?: unknown[] })?.requests?.some(
+      (r) => (r as { updateSheetProperties?: unknown }).updateSheetProperties,
+    ))
+    expect(rename).toBeDefined()
+    const requests = (rename!.body as { requests: Array<{ updateSheetProperties: { properties: { sheetId: number; title: string }; fields: string } }> }).requests
+    expect(requests).toEqual([{ updateSheetProperties: { properties: { sheetId: 2, title: '7_S1-Renamed' }, fields: 'title' } }])
+    // row write targets the NEW title, not the stale one
+    expect(calls.some((c) => c.url.includes('values/') && c.url.includes('7_S1-Renamed!'))).toBe(true)
+    expect(calls.some((c) => c.url.includes('7_S1!'))).toBe(false)
+  })
+})
+
+describe('renameSprintTabs', () => {
+  it('renames all tabs in one batchUpdate', async () => {
+    const calls: Array<{ url: string; body?: unknown }> = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined })
+      return json({ replies: [] })
+    })
+
+    await renameSprintTabs(config.SPREADSHEET_ID, [
+      { sheetId: 2, title: '7_NewName' },
+      { sheetId: 3, title: '8_NewName' },
+    ], 'token')
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toContain(':batchUpdate')
+    const requests = (calls[0].body as { requests: Array<{ updateSheetProperties: { properties: { sheetId: number; title: string }; fields: string } }> }).requests
+    expect(requests).toEqual([
+      { updateSheetProperties: { properties: { sheetId: 2, title: '7_NewName' }, fields: 'title' } },
+      { updateSheetProperties: { properties: { sheetId: 3, title: '8_NewName' }, fields: 'title' } },
+    ])
+  })
+
+  it('does nothing for an empty rename list', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await renameSprintTabs(config.SPREADSHEET_ID, [], 'token')
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
 
