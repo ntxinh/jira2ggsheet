@@ -90,6 +90,11 @@ Copy the **deployed Worker URL** (printed at the end of `deploy`).
      `https://jira2ggsheet.YOUR-ACCOUNT.workers.dev?token=YOUR_SECRET_TOKEN`
    - **Issue related events → JQL:** `project = ABC`
    - **Events:** check **Issue: created, updated, deleted**
+
+   That's all the events needed. Sprint renames don't fire a webhook (Jira has no
+   sprint-rename event, and `issue_updated` isn't reliably sent for them) — the
+   Worker's `*/5` cron sweep renames sprint tabs automatically by comparing each
+   tab against Jira's Agile API.
 3. **Create**.
 
 ### 6. Test end to end
