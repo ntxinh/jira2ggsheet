@@ -110,7 +110,7 @@ Copy the **deployed Worker URL** (printed at the end of `deploy`).
 
 ---
 
-## Option B: Google Apps Script (legacy backup)
+## Option B: Google Apps Script (deprecated, legacy backup)
 
 ### 1. Create the sheet and Apps Script project
 

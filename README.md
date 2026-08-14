@@ -21,7 +21,7 @@ When a sprint is renamed in Jira, the cron sync renames the matching tab (webhoo
 
 | Path | What |
 |---|---|
-| `src/gas/` | **Google Apps Script** (legacy backup) |
+| `src/gas/` | **Google Apps Script** (deprecated, legacy backup) |
 | `src/gas/Config.js` | All settings: spreadsheet ID, column map, custom field IDs, secret token, delete mode, template tab name |
 | `src/gas/FieldExtractor.js` | Webhook JSON → cell values (sprint arrays, dates) |
 | `src/gas/SheetWriter.js` | Row upsert / delete (only file touching SpreadsheetApp) |

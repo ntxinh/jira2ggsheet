@@ -7,7 +7,7 @@ Guidance for AI agents working in this repository.
 Syncs Jira issues into a Google Spreadsheet, one tab per sprint (`<sprintId>_<name>`). Two independent implementations live here:
 
 - **`src/workers/`** — Cloudflare Worker (TypeScript, Hono, vitest, wrangler). The active codebase. Receives Jira webhooks (`POST /`) for near-real-time updates and runs full-sprint syncs on a **Durable Object** (`SyncCoordinator`) kicked by a `*/5` cron and a manual `GET /sync`.
-- **`src/gas/`** — Legacy Google Apps Script (plain JS, no framework). Kept as reference; do not add features to it unless asked.
+- **`src/gas/`** — Deprecated and Legacy Google Apps Script (plain JS, no framework). Kept as reference; do not add features to it unless asked.
 
 ## Commands
 
