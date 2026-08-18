@@ -238,7 +238,7 @@ describe('Google Chat notifications', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
-  it('still returns ok and reports to Sentry when the Chat POST fails', async () => {
+  it('still returns ok and reports to Sentry when the Chat POST fails (with fallback attempt)', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('chat down'))
     const { ctx, pending } = captureWaitUntil()
 
@@ -246,6 +246,38 @@ describe('Google Chat notifications', () => {
     await Promise.all(pending)
 
     expect(res.status).toBe(200)
+    // NEW_TICKET then GOOGLE_CHAT fallback, both fail
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(fetchSpy.mock.calls[0][0]).toBe(newTicketUrl)
+    expect(fetchSpy.mock.calls[1][0]).toBe(chatUrl)
+    expect(captureException).toHaveBeenCalledWith(expect.any(Error))
+  })
+
+  it('falls back to GOOGLE_CHAT_WEBHOOK when NEW_TICKET_GOOGLE_CHAT_WEBHOOK returns non-2xx', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('gone', { status: 404 }))
+      .mockResolvedValueOnce(new Response('ok'))
+    const { ctx, pending } = captureWaitUntil()
+
+    const res = await index.fetch(webhookRequest(fullPayload), chatEnv, ctx)
+    await Promise.all(pending)
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(fetchSpy.mock.calls[0][0]).toBe(newTicketUrl)
+    expect(fetchSpy.mock.calls[1][0]).toBe(chatUrl)
+    expect(captureException).not.toHaveBeenCalled()
+  })
+
+  it('reports a non-2xx Chat response to Sentry instead of swallowing it', async () => {
+    // Outside the window -> only GOOGLE_CHAT, no fallback to mask the failure.
+    vi.setSystemTime(new Date('2026-08-10T11:00:00Z'))
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('bad', { status: 500 }))
+    const { ctx, pending } = captureWaitUntil()
+
+    const res = await index.fetch(webhookRequest(fullPayload), chatEnv, ctx)
+    await Promise.all(pending)
+
     expect(fetchSpy).toHaveBeenCalledTimes(1)
     expect(captureException).toHaveBeenCalledWith(expect.any(Error))
   })

@@ -27,21 +27,36 @@ export function isWithinTicketWindow(now: Date): boolean {
 // GOOGLE_CHAT_WEBHOOK. No-op when no webhook is set; failures are reported to Sentry and never
 // affect the webhook response (call via waitUntil, not awaited).
 export async function postChatNotification(env: Env, payload: JiraWebhookPayload): Promise<void> {
-  const webhookUrl =
-    payload.webhookEvent === 'jira:issue_created' && isWithinTicketWindow(new Date())
-      ? env.NEW_TICKET_GOOGLE_CHAT_WEBHOOK ?? env.GOOGLE_CHAT_WEBHOOK
-      : env.GOOGLE_CHAT_WEBHOOK
-  if (!webhookUrl) return
+  const createdInWindow = payload.webhookEvent === 'jira:issue_created' && isWithinTicketWindow(new Date())
 
-  try {
-    await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text: buildChatMessage(env, payload) }),
-    })
-  } catch (err) {
-    Sentry.captureException(err)
+  // Created tickets target the NEW_TICKET space (VN working hours only), falling back to the
+  // regular space if NEW_TICKET is unset or its POST fails. Everything else goes to the regular
+  // space. ponytail: fallback is a retry, not load-balancing — never posts to both.
+  let primary = env.GOOGLE_CHAT_WEBHOOK
+  let fallback: string | undefined
+  if (createdInWindow && env.NEW_TICKET_GOOGLE_CHAT_WEBHOOK) {
+    primary = env.NEW_TICKET_GOOGLE_CHAT_WEBHOOK
+    fallback = env.GOOGLE_CHAT_WEBHOOK
   }
+  const urls = [...new Set([primary, fallback].filter((u): u is string => Boolean(u)))]
+  if (urls.length === 0) return
+
+  const body = JSON.stringify({ text: buildChatMessage(env, payload) })
+  let lastErr: unknown
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body,
+      })
+      if (res.ok) return
+      lastErr = new Error(`Google Chat webhook responded ${res.status}: ${await res.text()}`)
+    } catch (err) {
+      lastErr = err
+    }
+  }
+  Sentry.captureException(lastErr)
 }
 
 function buildChatMessage(env: Env, payload: JiraWebhookPayload): string {
