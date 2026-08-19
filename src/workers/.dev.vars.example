@@ -24,3 +24,5 @@ SPRINT_ID=690,691
 
 # GOOGLE_CHAT_WEBHOOK=https://chat.googleapis.com/v1/spaces/SPACE_ID/messages?key=YOUR_KEY&token=YOUR_TOKEN  # uncomment to post a notification to a Chat space per Jira webhook (keep the real URL in .dev.vars, not here)
 # NEW_TICKET_GOOGLE_CHAT_WEBHOOK=https://chat.googleapis.com/v1/spaces/SPACE_ID/messages?key=YOUR_KEY&token=YOUR_TOKEN
+# Assignee display name to notify for in the Chat space when a new issue is added to the sheet.
+NOTIFY_ASSIGNEE=Binh Ho

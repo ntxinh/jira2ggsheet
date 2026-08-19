@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/cloudflare'
 import { getConfig, type Config, type Env } from './config'
 import { searchIssuesPage, fetchSprintName } from './jira'
 import { syncSprintPage, withStoredToken, getSheets, sprintSheetName, renameSprintTabs } from './sheetWriter'
+import { postChatNotification } from './chat'
 
 interface SyncState {
   sprintId: string // the sprint currently being synced
@@ -182,6 +183,16 @@ export class SyncCoordinator extends DurableObject<Env> {
       this.env.GOOGLE_PRIVATE_KEY,
       (token) => syncSprintPage(this.env.SPREADSHEET_ID, page.issues, token, this.config),
     )
+    // Same sheet-as-source-of-truth rule as webhooks: a full sync can also surface issues that
+    // were never written to the sheet (missed webhook, or created before the worker existed). If
+    // such a genuinely-new issue is assigned to NOTIFY_ASSIGNEE, ping the chat the same way. Fire-and-forget,
+    // never blocking the tick.
+    for (const issue of result.newIssues) {
+      const assignee = (issue.fields.assignee as { displayName?: string } | undefined)?.displayName
+      if (assignee === this.env.NOTIFY_ASSIGNEE) {
+        void postChatNotification(this.env, { webhookEvent: 'jira:issue_created', issue })
+      }
+    }
     return { nextPageToken: page.nextPageToken, rowsWritten: result.rowsWritten, isLast: page.isLast }
   }
 

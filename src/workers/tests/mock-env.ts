@@ -35,4 +35,5 @@ export const testEnv: Env = {
   CUSTOM_FIELDS_STORY_POINTS: 'customfield_10021',
   COLUMN_MAP_JSON: '{"B":"issueKey","C":"issueLink","L":"labels"}',
   SYNC_COORDINATOR: makeCoordinatorNamespace(),
+  NOTIFY_ASSIGNEE: 'Binh Ho',
 }

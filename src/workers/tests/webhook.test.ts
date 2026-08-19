@@ -4,6 +4,7 @@ import { testEnv, makeCoordinatorNamespace } from './mock-env'
 import type { KickResult } from '../syncCoordinator'
 import { captureException } from '@sentry/cloudflare'
 import { isWithinTicketWindow } from '../chat'
+import { upsertIssue } from '../sheetWriter'
 
 vi.mock('../sheetWriter', () => ({
   upsertIssue: vi.fn().mockResolvedValue(undefined),
@@ -114,7 +115,7 @@ describe('Google Chat notifications', () => {
         issuetype: { name: 'Bug' },
         status: { name: 'In Progress' },
         priority: { name: 'High' },
-        assignee: { displayName: 'John Doe' },
+        assignee: { displayName: 'Binh Ho' },
         customfield_10016: [{ id: 123, name: 'Sprint 1' }],
       },
     },
@@ -146,6 +147,7 @@ describe('Google Chat notifications', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-10T01:00:00Z')) // Mon 08:00 Vietnam (UTC+7)
+    vi.mocked(upsertIssue).mockResolvedValue(true) // the sheet upsert appended a NEW row
   })
 
   it('posts a notification with issue details when GOOGLE_CHAT_WEBHOOK is set', async () => {
@@ -163,7 +165,7 @@ describe('Google Chat notifications', () => {
     expect(body.text).toContain('jira:issue_created — TEST-1')
     expect(body.text).toContain('Fix login bug')
     expect(body.text).toContain('Bug · In Progress · High')
-    expect(body.text).toContain('Assignee: John Doe')
+    expect(body.text).toContain('Assignee: Binh Ho')
     expect(body.text).toContain('Sprint: Sprint 1')
     expect(body.text).toContain('https://acme.atlassian.net/browse/TEST-1')
   })
@@ -213,18 +215,44 @@ describe('Google Chat notifications', () => {
     expect(fetchSpy.mock.calls[0][0]).toBe(chatUrl)
   })
 
-  it('posts even for ignored webhooks (every valid POST)', async () => {
+  it('does not post for ignored webhooks (non-matching project)', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'))
     const { ctx, pending } = captureWaitUntil()
 
     const res = await index.fetch(webhookRequest({
       webhookEvent: 'jira:issue_created',
-      issue: { key: 'OTHER-1', fields: { project: { key: 'OTHER' } } },
+      issue: { key: 'OTHER-1', fields: { project: { key: 'OTHER' }, assignee: { displayName: 'Binh Ho' } } },
     }), chatEnv, ctx)
     await Promise.all(pending)
 
     expect(res.status).toBe(200)
-    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('does not post when the issue already exists in the sheet (upsert found the key)', async () => {
+    vi.mocked(upsertIssue).mockResolvedValueOnce(false)
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'))
+    const { ctx, pending } = captureWaitUntil()
+
+    const res = await index.fetch(webhookRequest(fullPayload), chatEnv, ctx)
+    await Promise.all(pending)
+
+    expect(res.status).toBe(200)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('does not post when the new issue is assigned to someone else', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'))
+    const { ctx, pending } = captureWaitUntil()
+
+    const res = await index.fetch(webhookRequest({
+      ...fullPayload,
+      issue: { ...fullPayload.issue, fields: { ...fullPayload.issue.fields, assignee: { displayName: 'John Doe' } } },
+    }), chatEnv, ctx)
+    await Promise.all(pending)
+
+    expect(res.status).toBe(200)
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   it('does not post when GOOGLE_CHAT_WEBHOOK is unset', async () => {

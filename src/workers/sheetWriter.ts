@@ -241,16 +241,18 @@ export async function renameSprintTabs(
   );
 }
 
+// Returns true only when a NEW row was appended (the issue key was not already in the sheet);
+// false when the row was an existing one. The webhook handler uses this as the notify gate.
 export async function upsertIssue(
   spreadsheetId: string,
   issue: JiraIssue,
   token: string,
   config: Config,
-): Promise<void> {
+): Promise<boolean> {
   const sprint = pickSprint(issue.fields[config.CUSTOM_FIELDS.sprint]);
   if (!sprint) {
     console.log(`Skipped ${issue.key}: no sprint`);
-    return;
+    return false;
   }
 
   const allSheets = await getSheets(spreadsheetId, token);
@@ -271,16 +273,19 @@ export async function upsertIssue(
 
   const keyCol = keyCols.get(sheet.title) ?? [];
   let row = findRowIndex(keyCol, issue.key, config.HEADER_ROWS);
+  const isNewRow = row === null;
   if (row === null) {
     row = Math.max(keyCol.length, config.HEADER_ROWS) + 1;
   }
 
   const colMap = buildRowMap(issue, config, row);
   await writeRowRange(spreadsheetId, sheet.title, row, colMap, token);
+  return isNewRow;
 }
 
 export interface SprintPageResult {
   rowsWritten: number;
+  newIssues: JiraIssue[]; // issues appended as NEW rows this page (their keys weren't in the sheet)
 }
 
 // Batched page sync for the DO alarm chain: one metadata read, one key-column batchGet per
@@ -293,7 +298,7 @@ export async function syncSprintPage(
   token: string,
   config: Config,
 ): Promise<SprintPageResult> {
-  if (issues.length === 0) return { rowsWritten: 0 };
+  if (issues.length === 0) return { rowsWritten: 0, newIssues: [] };
 
   // Group before any sheet I/O so a page with no sprinted issues costs zero requests. The JQL is
   // sprint-filtered, so this is normally one group; an issue in two active sprints can still land
@@ -309,13 +314,14 @@ export async function syncSprintPage(
     if (group) group.issues.push(issue);
     else groups.set(sprint.id, { sprint, issues: [issue] });
   }
-  if (groups.size === 0) return { rowsWritten: 0 };
+  if (groups.size === 0) return { rowsWritten: 0, newIssues: [] };
 
   const allSheets = await getSheets(spreadsheetId, token);
   const sprintTabs = allSheets.filter((s) => s.title !== config.TEMPLATE_SHEET && /^\d+_/.test(s.title));
 
   const updates: Array<{ range: string; values: string[][] }> = [];
   const deletes: Array<{ sheetId: number; row: number }> = [];
+  const newIssues: JiraIssue[] = [];
 
   for (const { sprint, issues: groupIssues } of groups.values()) {
     const sheet = await getOrCreateSprintSheet(spreadsheetId, sprint, token, config, allSheets);
@@ -329,12 +335,14 @@ export async function syncSprintPage(
 
     for (const issue of groupIssues) {
       let row = findRowIndex(ownKeys, issue.key, config.HEADER_ROWS);
+      const isNewRow = row === null && !pending.has(issue.key);
       if (row === null && !pending.has(issue.key)) {
         row = nextRow++;
         pending.add(issue.key);
       }
       if (row === null) continue; // duplicate key within the page; the first copy is already queued
 
+      if (isNewRow) newIssues.push(issue);
       const colMap = buildRowMap(issue, config, row);
       const cols = [...colMap.keys()].sort((a, b) => a - b);
       const minCol = cols[0];
@@ -394,7 +402,7 @@ export async function syncSprintPage(
     }
   }
 
-  return { rowsWritten: updates.length };
+  return { rowsWritten: updates.length, newIssues };
 }
 
 export async function deleteIssue(

@@ -182,6 +182,20 @@ describe('syncSprintPage', () => {
     expect(deletes).toHaveLength(0)
   })
 
+  it('reports only genuinely-new issues in newIssues, existing ones excluded', async () => {
+    const calls = stubPageApi()
+    const issues = [
+      { key: 'TEST-1', fields: { customfield_10016: [sprint7] } }, // exists at row 2
+      { key: 'TEST-2', fields: { customfield_10016: [sprint7] } }, // new
+      { key: 'TEST-3', fields: { customfield_10016: [sprint7] } }, // new
+      { key: 'TEST-1', fields: { customfield_10016: [sprint7] } }, // in-page duplicate of an existing key
+    ]
+
+    const result = await syncSprintPage(config.SPREADSHEET_ID, issues, 'token', config)
+
+    expect(result.newIssues.map((i) => i.key)).toEqual(['TEST-2', 'TEST-3'])
+  })
+
   it('deletes stale copies from other sprint tabs in one deduped batchUpdate', async () => {
     const calls = stubPageApi({ keyValues: { '7_S1': [['HDR'], ['TEST-1']], '8_S2': [['HDR'], ['TEST-1']], '9_S3': [['HDR']] } })
     const issues = [{ key: 'TEST-1', fields: { customfield_10016: [sprint7] } }]

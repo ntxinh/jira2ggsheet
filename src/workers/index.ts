@@ -5,7 +5,7 @@ import { getConfig, parseSprintIds, type Env } from './config'
 import { upsertIssue, deleteIssue, withToken } from './sheetWriter'
 import { postChatNotification } from './chat'
 import type { SyncCoordinator } from './syncCoordinator'
-import { JiraWebhookPayloadSchema, WebhookQuerySchema, SyncQuerySchema } from './schema'
+import { JiraWebhookPayloadSchema, WebhookQuerySchema, SyncQuerySchema, type JiraWebhookPayload } from './schema'
 
 export { SyncCoordinator } from './syncCoordinator' // exported from the entrypoint so wrangler can bind the DO
 
@@ -69,7 +69,7 @@ const syncStatusRoute = createRoute({
 // --- Business logic (preserved from legacy handler) ---
 
 function handleWebhook(
-  payload: { webhookEvent: string; issue: { key: string; fields: Record<string, unknown> } },
+  payload: JiraWebhookPayload,
   env: Env,
 ): Promise<void> | null {
   if (!payload || !payload.issue || !payload.issue.fields) {
@@ -92,7 +92,15 @@ function handleWebhook(
       return withToken(
         env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
         env.GOOGLE_PRIVATE_KEY,
-        (token) => upsertIssue(env.SPREADSHEET_ID, issue, token, config),
+        async (token) => {
+          const inserted = await upsertIssue(env.SPREADSHEET_ID, issue, token, config)
+          // Sheet is the single source of truth: only a genuinely new row (key not already in the
+          // sheet) assigned to NOTIFY_ASSIGNEE triggers the targeted notification.
+          const assignee = (issue.fields.assignee as { displayName?: string } | undefined)?.displayName
+          if (inserted && assignee === env.NOTIFY_ASSIGNEE) {
+            await postChatNotification(env, payload)
+          }
+        },
       )
     case 'jira:issue_deleted':
       return withToken(
@@ -116,14 +124,6 @@ app.openapi(webhookRoute, async (c) => {
   }
 
   const payload = c.req.valid('json')
-
-  // Fire-and-forget: notify the Chat space for every valid webhook, never blocking the response.
-  try {
-    c.executionCtx?.waitUntil(postChatNotification(c.env, payload))
-  } catch {
-    // No executionCtx in this environment; run the notification inline so it still fires.
-    void postChatNotification(c.env, payload)
-  }
 
   try {
     const work = handleWebhook(payload, c.env)

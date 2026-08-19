@@ -3,9 +3,11 @@ import { SyncCoordinator } from '../syncCoordinator'
 import { testEnv } from './mock-env'
 import { searchIssuesPage, fetchSprintName } from '../jira'
 import { syncSprintPage, getSheets, renameSprintTabs } from '../sheetWriter'
+import { postChatNotification } from '../chat'
 import { captureException } from '@sentry/cloudflare'
 
 vi.mock('../jira', () => ({ searchIssuesPage: vi.fn(), fetchSprintName: vi.fn() }))
+vi.mock('../chat', () => ({ postChatNotification: vi.fn() }))
 vi.mock('../sheetWriter', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../sheetWriter')>()
   return {
@@ -23,6 +25,7 @@ const fetchSprintNameMock = vi.mocked(fetchSprintName)
 const syncSprintPageMock = vi.mocked(syncSprintPage)
 const getSheetsMock = vi.mocked(getSheets)
 const renameSprintTabsMock = vi.mocked(renameSprintTabs)
+const postChatNotificationMock = vi.mocked(postChatNotification)
 const captureExceptionMock = vi.mocked(captureException)
 
 function makeState() {
@@ -62,7 +65,7 @@ function runningState(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  syncSprintPageMock.mockResolvedValue({ rowsWritten: 1 })
+  syncSprintPageMock.mockResolvedValue({ rowsWritten: 1, newIssues: [] })
 })
 
 afterEach(() => {
@@ -234,6 +237,36 @@ describe('alarm', () => {
     const alarm = state.getAlarm()!
     expect(alarm).toBeGreaterThanOrEqual(Date.now() + 3000 - 1000)
     expect(alarm).toBeLessThanOrEqual(Date.now() + 3000 + 1000)
+  })
+
+  it('notifies when a page-surfaced new issue is assigned to Binh Ho, silently for others', async () => {
+    const binh = { key: 'ABC-2', fields: { assignee: { displayName: 'Binh Ho' } } }
+    const other = { key: 'ABC-3', fields: { assignee: { displayName: 'John Doe' } } }
+    const state = makeState()
+    await state.storage.put('sync', runningState())
+    searchIssuesPageMock.mockResolvedValueOnce({ issues: [binh, other], nextPageToken: undefined, isLast: false })
+    syncSprintPageMock.mockResolvedValueOnce({ rowsWritten: 2, newIssues: [binh, other] })
+    const coordinator = makeCoordinator(state)
+
+    await coordinator.alarm()
+
+    expect(postChatNotificationMock).toHaveBeenCalledTimes(1)
+    expect(postChatNotificationMock).toHaveBeenCalledWith(testEnv, {
+      webhookEvent: 'jira:issue_created',
+      issue: binh,
+    })
+  })
+
+  it('does not notify when the page only updated existing rows', async () => {
+    const state = makeState()
+    await state.storage.put('sync', runningState())
+    searchIssuesPageMock.mockResolvedValueOnce({ issues: [{ key: 'ABC-1', fields: {} }], nextPageToken: undefined, isLast: false })
+    syncSprintPageMock.mockResolvedValueOnce({ rowsWritten: 1, newIssues: [] })
+    const coordinator = makeCoordinator(state)
+
+    await coordinator.alarm()
+
+    expect(postChatNotificationMock).not.toHaveBeenCalled()
   })
 
   it('clears the state when the last page is reached', async () => {
