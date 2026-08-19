@@ -98,7 +98,9 @@ function handleWebhook(
           // sheet) assigned to NOTIFY_ASSIGNEE triggers the targeted notification.
           const assignee = (issue.fields.assignee as { displayName?: string } | undefined)?.displayName
           if (inserted && assignee === env.NOTIFY_ASSIGNEE) {
-            await postChatNotification(env, payload)
+            // Always tagged as created: the notification fires whenever a new issue lands in the
+            // sheet, regardless of whether the webhook that added it said created or updated.
+            await postChatNotification(env, { ...payload, webhookEvent: 'jira:issue_created' })
           }
         },
       )
@@ -124,6 +126,14 @@ app.openapi(webhookRoute, async (c) => {
   }
 
   const payload = c.req.valid('json')
+
+  // Fire-and-forget: notify the Chat space for every valid webhook, never blocking the response.
+  try {
+    c.executionCtx?.waitUntil(postChatNotification(c.env, payload))
+  } catch {
+    // No executionCtx in this environment; run the notification inline so it still fires.
+    void postChatNotification(c.env, payload)
+  }
 
   try {
     const work = handleWebhook(payload, c.env)
