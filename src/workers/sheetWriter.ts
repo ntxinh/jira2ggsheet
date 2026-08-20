@@ -129,6 +129,65 @@ async function readKeyColumns(
   return map;
 }
 
+// Reads the DEV-assignee and preserve columns with valueRenderOption=FORMULA so preserved cells
+// round-trip exactly (formula or literal) and an auto-filled DEV cell can be told apart from a
+// manually typed value. Returns per title, per column letter, the column's cell contents.
+async function readPreserveCells(
+  spreadsheetId: string,
+  sheetTitles: string[],
+  cols: string[],
+  token: string,
+): Promise<Map<string, Record<string, string[]>>> {
+  const params = new URLSearchParams({ valueRenderOption: 'FORMULA' });
+  for (const t of sheetTitles) {
+    for (const col of cols) params.append('ranges', `${t}!${col}:${col}`);
+  }
+  const data = await apiFetch(
+    token,
+    `${SHEETS_API_BASE}/spreadsheets/${spreadsheetId}/values:batchGet?${params}`,
+  ) as { valueRanges?: Array<{ values?: string[][] }> };
+  const map = new Map<string, Record<string, string[]>>();
+  sheetTitles.forEach((title, i) => {
+    const byCol: Record<string, string[]> = {};
+    cols.forEach((col, j) => {
+      const rows = data.valueRanges?.[i * cols.length + j]?.values ?? [];
+      byCol[col] = rows.map((r) => r[0] ?? '');
+    });
+    map.set(title, byCol);
+  });
+  return map;
+}
+
+function devFormula(row: number, config: Config): string {
+  return `=IF(ISBLANK(${config.JIRA_ASSIGNEE_COLUMN}${row}), "", VLOOKUP(${config.JIRA_ASSIGNEE_COLUMN}${row}, Mapping!A:B, 2, FALSE))`;
+}
+
+// DEV_ASSIGNEE_COLUMN: empty -> fill the formula; still auto-filled -> rewrite so a Jira
+// re-assignment recalcs the DEV assignee; manual value -> preserve. PRESERVE_COLUMNS: always
+// preserved verbatim (those columns the sync must never clobber).
+function mergePreserve(
+  colMap: Map<number, string>,
+  row: number,
+  config: Config,
+  p: Record<string, string[]> | undefined,
+): Map<number, string> {
+  const dev = p?.[config.DEV_ASSIGNEE_COLUMN]?.[row - 1] ?? '';
+  colMap.set(
+    columnLetterToIndex(config.DEV_ASSIGNEE_COLUMN),
+    dev === '' || dev.startsWith('=IF(ISBLANK(') ? devFormula(row, config) : dev,
+  );
+  for (const col of config.PRESERVE_COLUMNS) {
+    if (col === config.DEV_ASSIGNEE_COLUMN) continue;
+    colMap.set(columnLetterToIndex(col), p?.[col]?.[row - 1] ?? '');
+  }
+  return colMap;
+}
+
+// Columns needing a preserve read: the DEV-assignee column plus the preserve columns (deduped).
+function preserveColumns(config: Config): string[] {
+  return [config.DEV_ASSIGNEE_COLUMN, ...config.PRESERVE_COLUMNS.filter((c) => c !== config.DEV_ASSIGNEE_COLUMN)];
+}
+
 function findRowIndex(values: string[], issueKey: string, headerRows: number): number | null {
   for (let i = headerRows; i < values.length; i++) {
     if (values[i] === issueKey) return i + 1;
@@ -278,7 +337,8 @@ export async function upsertIssue(
     row = Math.max(keyCol.length, config.HEADER_ROWS) + 1;
   }
 
-  const colMap = buildRowMap(issue, config, row);
+  const preserve = await readPreserveCells(spreadsheetId, [sheet.title], preserveColumns(config), token);
+  const colMap = mergePreserve(buildRowMap(issue, config, row), row, config, preserve.get(sheet.title));
   await writeRowRange(spreadsheetId, sheet.title, row, colMap, token);
   return isNewRow;
 }
@@ -325,6 +385,7 @@ export async function syncSprintPage(
 
   for (const { sprint, issues: groupIssues } of groups.values()) {
     const sheet = await getOrCreateSprintSheet(spreadsheetId, sprint, token, config, allSheets);
+    const preserve = await readPreserveCells(spreadsheetId, [sheet.title], preserveColumns(config), token);
     const others = sprintTabs.filter((s) => s.sheetId !== sheet.sheetId);
     const targets = [...others.map((s) => s.title), sheet.title];
     const keyCols = await readKeyColumns(spreadsheetId, targets, config.KEY_COLUMN, token);
@@ -343,7 +404,7 @@ export async function syncSprintPage(
       if (row === null) continue; // duplicate key within the page; the first copy is already queued
 
       if (isNewRow) newIssues.push(issue);
-      const colMap = buildRowMap(issue, config, row);
+      const colMap = mergePreserve(buildRowMap(issue, config, row), row, config, preserve.get(sheet.title));
       const cols = [...colMap.keys()].sort((a, b) => a - b);
       const minCol = cols[0];
       const maxCol = cols[cols.length - 1];

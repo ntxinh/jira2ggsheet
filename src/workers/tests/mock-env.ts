@@ -34,6 +34,9 @@ export const testEnv: Env = {
   CUSTOM_FIELDS_SPRINT: 'customfield_10016',
   CUSTOM_FIELDS_STORY_POINTS: 'customfield_10021',
   COLUMN_MAP_JSON: '{"B":"issueKey","C":"issueLink","L":"labels"}',
+  JIRA_ASSIGNEE_COLUMN: 'H',
+  DEV_ASSIGNEE_COLUMN: 'I',
+  PRESERVE_COLUMNS: 'J,N',
   SYNC_COORDINATOR: makeCoordinatorNamespace(),
   NOTIFY_ASSIGNEE: 'Binh Ho',
 }

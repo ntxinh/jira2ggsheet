@@ -10,6 +10,9 @@ export interface Config {
   SPRINT_IDS: string[]; // parsed from the comma-separated SPRINT_ID var
   JIRA_SUBDOMAIN: string;
   COLUMN_MAP: Record<string, string>;
+  JIRA_ASSIGNEE_COLUMN: string; // column holding the Jira assignee, referenced by the DEV-assignee formula
+  DEV_ASSIGNEE_COLUMN: string; // column auto-filled with the Mapping-tab VLOOKUP formula when empty
+  PRESERVE_COLUMNS: string[]; // columns the sync must never overwrite (manual values kept verbatim)
   CUSTOM_FIELDS: {
     sprint: string;
     storyPoints: string;
@@ -37,6 +40,9 @@ export interface Env {
   CUSTOM_FIELDS_SPRINT: string;
   CUSTOM_FIELDS_STORY_POINTS: string;
   COLUMN_MAP_JSON: string;
+  JIRA_ASSIGNEE_COLUMN: string;
+  DEV_ASSIGNEE_COLUMN: string;
+  PRESERVE_COLUMNS: string;
   SYNC_COORDINATOR: DurableObjectNamespace<SyncCoordinator>; // DO binding (wrangler.jsonc)
   SENTRY_DSN?: string;
   GOOGLE_CHAT_WEBHOOK?: string; // Google Chat incoming webhook; posts a notification per Jira webhook when set
@@ -64,6 +70,9 @@ export function getConfig(env: Env): Config {
     SPRINT_IDS: parseSprintIds(env.SPRINT_ID),
     JIRA_SUBDOMAIN: env.JIRA_SUBDOMAIN,
     COLUMN_MAP: JSON.parse(env.COLUMN_MAP_JSON),
+    JIRA_ASSIGNEE_COLUMN: env.JIRA_ASSIGNEE_COLUMN,
+    DEV_ASSIGNEE_COLUMN: env.DEV_ASSIGNEE_COLUMN,
+    PRESERVE_COLUMNS: (env.PRESERVE_COLUMNS ?? '').split(',').map((c) => c.trim()).filter((c) => c.length > 0),
     CUSTOM_FIELDS: {
       sprint: env.CUSTOM_FIELDS_SPRINT,
       storyPoints: env.CUSTOM_FIELDS_STORY_POINTS,

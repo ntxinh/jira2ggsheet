@@ -15,6 +15,9 @@ const config: Config = {
   SPRINT_IDS: ['7'],
   JIRA_SUBDOMAIN: 'acme',
   COLUMN_MAP: { B: 'issueKey', C: 'sprintId' },
+  JIRA_ASSIGNEE_COLUMN: 'H',
+  DEV_ASSIGNEE_COLUMN: 'I',
+  PRESERVE_COLUMNS: ['J', 'N'],
   CUSTOM_FIELDS: { sprint: 'customfield_10016', storyPoints: 'customfield_10018' },
   DATE_FORMAT: 'yyyy-MM-dd',
   TIMEZONE: 'UTC',
@@ -42,10 +45,11 @@ function stubSheets(): Array<{ url: string; method: string | undefined }> {
     if (url.includes(':batchGet')) {
       const u = new URL(url)
       return json({
-        valueRanges: u.searchParams.getAll('ranges').map((range) => ({
-          range,
-          values: range.includes('7_S1') ? [['HDR'], ['TEST-1']] : [['HDR']],
-        })),
+        valueRanges: u.searchParams.getAll('ranges').map((range) => {
+          const [t, cols] = range.split('!')
+          const base = t.includes('7_S1') ? [['HDR'], ['TEST-1']] : [['HDR']]
+          return { range, values: cols === `${config.KEY_COLUMN}:${config.KEY_COLUMN}` ? base : base.map(() => ['']) }
+        }),
       })
     }
     if (url.includes(':batchUpdate')) return json({ replies: [] })
@@ -69,15 +73,16 @@ describe('upsertIssue read amplification', () => {
     await upsertIssue(config.SPREADSHEET_ID, issue, 'token', config)
 
     const reads = calls.filter((c) => !c.method || c.method === 'GET')
-    expect(reads).toHaveLength(2) // 1 metadata + 1 batchGet
+    expect(reads).toHaveLength(3) // 1 metadata + 2 batchGet (key columns + preserve I:J)
 
     const perTabReads = reads.filter((c) => c.url.includes('/values/') && !c.url.includes(':batchGet'))
     expect(perTabReads).toHaveLength(0) // no N-per-tab values.get calls
 
-    const batchGet = calls.find((c) => c.url.includes(':batchGet'))
-    expect(batchGet).toBeDefined()
-    const ranges = new URL(batchGet!.url).searchParams.getAll('ranges')
-    expect(ranges).toEqual(['8_S2!C:C', '9_S3!C:C', '7_S1!C:C'])
+    const batchGets = calls.filter((c) => c.url.includes(':batchGet'))
+    expect(batchGets).toHaveLength(2)
+    const keyRead = batchGets.find((c) => new URL(c.url).searchParams.getAll('ranges').every((r) => r.endsWith('!C:C')))
+    expect(keyRead).toBeDefined()
+    expect(new URL(keyRead!.url).searchParams.getAll('ranges')).toEqual(['8_S2!C:C', '9_S3!C:C', '7_S1!C:C'])
   })
 })
 
@@ -139,28 +144,34 @@ describe('syncSprintPage', () => {
     ],
   }
 
-  function stubPageApi(options: { keyValues?: Record<string, string[][]> } = {}) {
-    const calls: Array<{ url: string; method: string | undefined; body?: unknown }> = []
-    const keyValues = options.keyValues ?? { '7_S1': [['HDR'], ['TEST-1']], '8_S2': [['HDR']], '9_S3': [['HDR']] }
-    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input)
-      calls.push({ url, method: init?.method, body: init?.body ? JSON.parse(String(init.body)) : undefined })
-      if (url.endsWith(`/spreadsheets/${config.SPREADSHEET_ID}`)) {
-        return json(sheetsMeta)
-      }
-      if (url.includes(':batchGet')) {
-        const u = new URL(url)
-        return json({
-          valueRanges: u.searchParams.getAll('ranges').map((range) => {
-            const title = range.split('!')[0]
+function stubPageApi(options: { keyValues?: Record<string, string[][]>; preserve?: Record<string, string[][]> } = {}) {
+  const calls: Array<{ url: string; method: string | undefined; body?: unknown }> = []
+  const keyValues = options.keyValues ?? { '7_S1': [['HDR'], ['TEST-1']], '8_S2': [['HDR']], '9_S3': [['HDR']] }
+  const preserveCols = [config.DEV_ASSIGNEE_COLUMN, ...config.PRESERVE_COLUMNS.filter((c) => c !== config.DEV_ASSIGNEE_COLUMN)]
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    calls.push({ url, method: init?.method, body: init?.body ? JSON.parse(String(init.body)) : undefined })
+    if (url.endsWith(`/spreadsheets/${config.SPREADSHEET_ID}`)) {
+      return json(sheetsMeta)
+    }
+    if (url.includes(':batchGet')) {
+      const u = new URL(url)
+      return json({
+        valueRanges: u.searchParams.getAll('ranges').map((range) => {
+          const [title, cols] = range.split('!')
+          if (cols === `${config.KEY_COLUMN}:${config.KEY_COLUMN}`) {
             return { range, values: keyValues[title] ?? [['HDR']] }
-          }),
-        })
-      }
-      return json({ replies: [] })
-    })
-    return calls
-  }
+          }
+          const idx = preserveCols.indexOf(cols[0])
+          const cells = options.preserve?.[title] ?? (keyValues[title] ?? [['HDR']]).map(() => ['', '', ''])
+          return { range, values: cells.map((r) => [r[idx] ?? '']) }
+        }),
+      })
+    }
+    return json({ replies: [] })
+  })
+  return calls
+}
 
   const sprint7 = { id: 7, name: 'S1', state: 'active' }
 
@@ -177,7 +188,7 @@ describe('syncSprintPage', () => {
     const writes = calls.filter((c) => c.url.includes('values:batchUpdate'))
     expect(writes).toHaveLength(1) // ONE batched write for the whole page
     const data = (writes[0].body as { data: Array<{ range: string }> }).data
-    expect(data.map((d) => d.range)).toEqual(['7_S1!B2:C2', '7_S1!B3:C3'])
+    expect(data.map((d) => d.range)).toEqual(['7_S1!B2:N2', '7_S1!B3:N3'])
     const deletes = calls.filter((c) => c.url.includes(':batchUpdate') && !c.url.includes('values:batchUpdate'))
     expect(deletes).toHaveLength(0)
   })
@@ -237,7 +248,7 @@ describe('syncSprintPage', () => {
     const writes = calls.filter((c) => c.url.includes('values:batchUpdate'))
     expect(writes).toHaveLength(1)
     const data = (writes[0].body as { data: Array<{ range: string }> }).data
-    expect(data.map((d) => d.range).sort()).toEqual(['7_S1!B2:C2', '8_S2!B2:C2'])
+    expect(data.map((d) => d.range).sort()).toEqual(['7_S1!B2:N2', '8_S2!B2:N2'])
   })
 
   it('skips issues without a sprint without touching the sheet', async () => {
@@ -245,6 +256,67 @@ describe('syncSprintPage', () => {
     const result = await syncSprintPage(config.SPREADSHEET_ID, [{ key: 'TEST-9', fields: {} }], 'token', config)
     expect(result.rowsWritten).toBe(0)
     expect(calls).toHaveLength(0)
+  })
+
+  describe('DEV assignee formula and preserve columns', () => {
+    const keyValues = { '7_S1': [['HDR'], ['TEST-1']], '8_S2': [['HDR']], '9_S3': [['HDR']] }
+
+    const writeRow = async (calls: Array<{ url: string; body?: unknown }>, at = 0) => {
+      const writes = calls.filter((c) => c.url.includes('values:batchUpdate'))
+      return (writes[at].body as { data: Array<{ range: string; values: string[][] }> }).data[0]
+    }
+
+    it('fills the DEV-assignee VLOOKUP formula when DEV column is empty and preserves empty J/N', async () => {
+      const calls = stubPageApi({ keyValues })
+      const issues = [{ key: 'TEST-1', fields: { customfield_10016: [sprint7] } }] // exists at row 2
+
+      await syncSprintPage(config.SPREADSHEET_ID, issues, 'token', config)
+
+      const row = (await writeRow(calls)).values[0]
+      expect(row[7]).toBe('=IF(ISBLANK(H2), "", VLOOKUP(H2, Mapping!A:B, 2, FALSE))')
+      expect(row[8]).toBe('') // J left empty
+      expect(row[12]).toBe('') // N left empty
+    })
+
+    it('fills the formula on a new row referencing the new row number', async () => {
+      const calls = stubPageApi({ keyValues })
+      const issues = [{ key: 'TEST-2', fields: { customfield_10016: [sprint7] } }] // new -> row 3
+
+      await syncSprintPage(config.SPREADSHEET_ID, issues, 'token', config)
+
+      const row = (await writeRow(calls)).values[0]
+      expect(row[7]).toBe('=IF(ISBLANK(H3), "", VLOOKUP(H3, Mapping!A:B, 2, FALSE))')
+    })
+
+    it('preserves a manually typed DEV assignee and J/N columns verbatim', async () => {
+      const calls = stubPageApi({
+        keyValues,
+        preserve: { '7_S1': [['HDR', 'HDR', 'HDR'], ['Alice', 'manual-note', 'N-note']] },
+      })
+      const issues = [{ key: 'TEST-1', fields: { customfield_10016: [sprint7] } }]
+
+      await syncSprintPage(config.SPREADSHEET_ID, issues, 'token', config)
+
+      const row = (await writeRow(calls)).values[0]
+      expect(row[7]).toBe('Alice')
+      expect(row[8]).toBe('manual-note')
+      expect(row[12]).toBe('N-note')
+    })
+
+    it('rewrites the formula when the DEV cell is still auto-filled, so a Jira re-assignment recalcs DEV assignee', async () => {
+      const calls = stubPageApi({
+        keyValues,
+        preserve: { '7_S1': [['HDR', 'HDR', 'HDR'], ['=IF(ISBLANK(H2), "", VLOOKUP(H2, Mapping!A:B, 2, FALSE))', 'old-j', 'N-note']] },
+      })
+      const issues = [{ key: 'TEST-1', fields: { customfield_10016: [sprint7] } }]
+
+      await syncSprintPage(config.SPREADSHEET_ID, issues, 'token', config)
+
+      const row = (await writeRow(calls)).values[0]
+      expect(row[7]).toBe('=IF(ISBLANK(H2), "", VLOOKUP(H2, Mapping!A:B, 2, FALSE))')
+      expect(row[8]).toBe('old-j') // J untouched
+      expect(row[12]).toBe('N-note') // N untouched
+    })
   })
 })
 
