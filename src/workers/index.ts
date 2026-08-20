@@ -127,14 +127,6 @@ app.openapi(webhookRoute, async (c) => {
 
   const payload = c.req.valid('json')
 
-  // Fire-and-forget: notify the Chat space for every valid webhook, never blocking the response.
-  try {
-    c.executionCtx?.waitUntil(postChatNotification(c.env, payload))
-  } catch {
-    // No executionCtx in this environment; run the notification inline so it still fires.
-    void postChatNotification(c.env, payload)
-  }
-
   try {
     const work = handleWebhook(payload, c.env)
     if (work) {
