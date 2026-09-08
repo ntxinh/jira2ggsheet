@@ -1,11 +1,14 @@
 import { OpenAPIHono, createRoute } from '@hono/zod-openapi'
 import { apiReference } from '@scalar/hono-api-reference'
+import { serve as inngestServe } from 'inngest/hono'
 import * as Sentry from '@sentry/cloudflare'
 import { getConfig, parseSprintIds, type Env } from './config'
 import { upsertIssue, deleteIssue, withToken } from './sheetWriter'
 import { postChatNotification } from './chat'
 import type { SyncCoordinator } from './syncCoordinator'
 import { JiraWebhookPayloadSchema, WebhookQuerySchema, SyncQuerySchema, type JiraWebhookPayload } from './schema'
+import { inngest } from './inngest/client'
+import { fetchSprintNameFn } from './inngest/functions'
 
 export { SyncCoordinator } from './syncCoordinator' // exported from the entrypoint so wrangler can bind the DO
 
@@ -189,6 +192,12 @@ app.get('/openapi.json', (c) => {
 
 // Scalar API docs UI
 app.get('/docs', apiReference({ spec: { url: '/openapi.json' } }))
+
+const inngestHandler = inngestServe({
+  client: inngest,
+  functions: [fetchSprintNameFn],
+})
+app.all('/api/inngest', (c) => inngestHandler(c))
 
 // Single named SyncCoordinator instance: all kicks (cron, manual) land on the same object, which
 // is what gives the sync its shared progress state and its "one sync at a time" guarantee.

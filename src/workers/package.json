@@ -15,6 +15,7 @@
     "@scalar/hono-api-reference": "^0.5.0",
     "@sentry/cloudflare": "^10.70.0",
     "hono": "^4.7.0",
+    "inngest": "^4.20.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {

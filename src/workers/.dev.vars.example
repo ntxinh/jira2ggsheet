@@ -32,3 +32,7 @@ SPRINT_ID=690,691
 # NEW_TICKET_GOOGLE_CHAT_WEBHOOK=https://chat.googleapis.com/v1/spaces/SPACE_ID/messages?key=YOUR_KEY&token=YOUR_TOKEN
 # Assignee display name to notify for in the Chat space when a new issue is added to the sheet.
 NOTIFY_ASSIGNEE=Binh Ho
+
+# Inngest (https://dashboard.inngest.com) — required for the /api/inngest serve endpoint
+INNGEST_SIGNING_KEY=signkey-prod-...
+INNGEST_EVENT_KEY=evt-...
