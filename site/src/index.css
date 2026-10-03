@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-neon-cyan: #00f0ff;
+  --color-neon-purple: #b026ff;
+  --color-neon-orange: #ff4d4d;
+
+  --animate-blob-a: blob-a 26s ease-in-out infinite alternate;
+  --animate-blob-b: blob-b 32s ease-in-out infinite alternate;
+  --animate-blob-c: blob-c 38s ease-in-out infinite alternate;
+  --animate-marquee: marquee 36s linear infinite;
+
+  @keyframes blob-a {
+    from { transform: translate(0, 0) scale(1); }
+    to { transform: translate(12vw, 8vh) scale(1.15); }
+  }
+  @keyframes blob-b {
+    from { transform: translate(0, 0) scale(1); }
+    to { transform: translate(-10vw, -6vh) scale(0.9); }
+  }
+  @keyframes blob-c {
+    from { transform: translate(0, 0) scale(1); }
+    to { transform: translate(8vw, -10vh) scale(1.1); }
+  }
+  @keyframes marquee {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: #050505;
+  color: #fff;
+  font-family: var(--font-sans);
+}
