@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { SyncCoordinator } from '../syncCoordinator'
 import { testEnv } from './mock-env'
-import { searchIssuesPage, fetchSprintName } from '../jira'
+import { searchIssuesPage, fetchSprintName, fetchMyselfAccountId, addWatcher } from '../jira'
 import { syncSprintPage, getSheets, renameSprintTabs } from '../sheetWriter'
 import { postChatNotification } from '../chat'
 import { captureException } from '@sentry/cloudflare'
 
-vi.mock('../jira', () => ({ searchIssuesPage: vi.fn(), fetchSprintName: vi.fn() }))
+vi.mock('../jira', () => ({ searchIssuesPage: vi.fn(), fetchSprintName: vi.fn(), fetchMyselfAccountId: vi.fn(), addWatcher: vi.fn() }))
 vi.mock('../chat', () => ({ postChatNotification: vi.fn() }))
 vi.mock('../sheetWriter', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../sheetWriter')>()
@@ -27,6 +27,8 @@ const getSheetsMock = vi.mocked(getSheets)
 const renameSprintTabsMock = vi.mocked(renameSprintTabs)
 const postChatNotificationMock = vi.mocked(postChatNotification)
 const captureExceptionMock = vi.mocked(captureException)
+const fetchMyselfAccountIdMock = vi.mocked(fetchMyselfAccountId)
+const addWatcherMock = vi.mocked(addWatcher)
 
 function makeState() {
   const map = new Map<string, unknown>()
@@ -66,6 +68,8 @@ function runningState(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks()
   syncSprintPageMock.mockResolvedValue({ rowsWritten: 1, newIssues: [] })
+  fetchMyselfAccountIdMock.mockResolvedValue('acct-mine')
+  addWatcherMock.mockResolvedValue(undefined)
 })
 
 afterEach(() => {
@@ -369,5 +373,115 @@ describe('fetch', () => {
 
     const other = await coordinator.fetch(new Request('https://do/other'))
     expect(other.status).toBe(404)
+  })
+})
+
+describe('watcher collection and drain', () => {
+  const mine = (key: string) => ({ key, fields: { assignee: { accountId: 'acct-mine' } } })
+  const other = (key: string) => ({ key, fields: { assignee: { accountId: 'acct-other' } } })
+
+  it('collects keys assigned to the token owner and drains them after the last page', async () => {
+    const state = makeState()
+    await state.storage.put('sync', runningState())
+    searchIssuesPageMock.mockResolvedValueOnce({
+      issues: [mine('ABC-1'), other('ABC-2'), mine('ABC-3')],
+      nextPageToken: undefined,
+      isLast: true,
+    })
+    const coordinator = makeCoordinator(state)
+
+    await coordinator.alarm() // last page: collect, switch to drain mode
+
+    expect(fetchMyselfAccountIdMock).toHaveBeenCalledTimes(1)
+    expect(addWatcherMock).not.toHaveBeenCalled() // nothing posted during page ticks
+    const stored = state.map.get('sync') as { watchQueue: string[]; drainingWatchers: boolean }
+    expect(stored.watchQueue).toEqual(['ABC-1', 'ABC-3'])
+    expect(stored.drainingWatchers).toBe(true)
+    expect(state.getAlarm()).not.toBeNull()
+
+    await coordinator.alarm() // drain tick: posts both, queue empty → state cleared
+
+    expect(addWatcherMock).toHaveBeenCalledTimes(2)
+    expect(addWatcherMock).toHaveBeenCalledWith('ABC-1', 'acct-mine', 'acme', 'jira@example.com', 'jira-token')
+    expect(state.map.has('sync')).toBe(false)
+  })
+
+  it('drains at most 20 watchers per tick to stay under the subrequest budget', async () => {
+    const keys = Array.from({ length: 25 }, (_, i) => `ABC-${i}`)
+    const state = makeState()
+    await state.storage.put('sync', runningState({
+      drainingWatchers: true,
+      watchAccountId: 'acct-mine',
+      watchQueue: [...keys],
+    }))
+    const coordinator = makeCoordinator(state)
+
+    await coordinator.alarm() // drains 20, 5 remain → another tick scheduled
+
+    expect(addWatcherMock).toHaveBeenCalledTimes(20)
+    const stored = state.map.get('sync') as { watchQueue: string[] }
+    expect(stored.watchQueue).toEqual(keys.slice(20))
+    expect(state.getAlarm()).not.toBeNull()
+
+    await coordinator.alarm() // drains the rest → done
+
+    expect(addWatcherMock).toHaveBeenCalledTimes(25)
+    expect(state.map.has('sync')).toBe(false)
+  })
+
+  it('clears state immediately when the last page leaves no keys to watch', async () => {
+    const state = makeState()
+    await state.storage.put('sync', runningState())
+    searchIssuesPageMock.mockResolvedValueOnce({ issues: [other('ABC-9')], nextPageToken: undefined, isLast: true })
+    const coordinator = makeCoordinator(state)
+
+    await coordinator.alarm()
+
+    expect(state.map.has('sync')).toBe(false)
+    expect(state.getAlarm()).toBeNull()
+    expect(addWatcherMock).not.toHaveBeenCalled()
+  })
+
+  it('resolves /myself once per sync and skips the lookup when no issue has an assignee', async () => {
+    const state = makeState()
+    await state.storage.put('sync', runningState())
+    searchIssuesPageMock.mockResolvedValueOnce({ issues: [{ key: 'ABC-1', fields: {} }], nextPageToken: 'p2', isLast: false })
+    const coordinator = makeCoordinator(state)
+
+    await coordinator.alarm()
+
+    expect(fetchMyselfAccountIdMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps syncing when /myself fails — watcher collection is skipped for that page', async () => {
+    fetchMyselfAccountIdMock.mockRejectedValueOnce(new Error('myself down'))
+    const state = makeState()
+    await state.storage.put('sync', runningState())
+    searchIssuesPageMock.mockResolvedValueOnce({ issues: [mine('ABC-1')], nextPageToken: 'p2', isLast: false })
+    const coordinator = makeCoordinator(state)
+
+    await coordinator.alarm()
+
+    const stored = state.map.get('sync') as { nextPageToken: string; watchQueue?: string[] }
+    expect(stored.nextPageToken).toBe('p2') // tick succeeded, cursor advanced
+    expect(stored.watchQueue).toBeUndefined()
+    expect(captureExceptionMock).toHaveBeenCalled()
+  })
+
+  it('logs a dead watcher key and continues draining the rest', async () => {
+    addWatcherMock.mockRejectedValueOnce(new Error('issue gone'))
+    const state = makeState()
+    await state.storage.put('sync', runningState({
+      drainingWatchers: true,
+      watchAccountId: 'acct-mine',
+      watchQueue: ['ABC-1', 'ABC-2'],
+    }))
+    const coordinator = makeCoordinator(state)
+
+    await coordinator.alarm()
+
+    expect(addWatcherMock).toHaveBeenCalledTimes(2)
+    expect(state.map.has('sync')).toBe(false)
+    expect(captureExceptionMock).toHaveBeenCalled()
   })
 })

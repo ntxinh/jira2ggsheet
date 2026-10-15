@@ -18,6 +18,7 @@ const JiraStatusSchema = z.object({
 
 const JiraUserSchema = z.object({
   displayName: z.string().openapi({ example: 'John Doe' }),
+  accountId: z.string().openapi({ example: '5b10a2844c20165700ede21g' }).optional(),
 }).openapi('JiraUser')
 
 const JiraSprintItemSchema = z.object({

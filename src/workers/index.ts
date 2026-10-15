@@ -5,6 +5,7 @@ import * as Sentry from '@sentry/cloudflare'
 import { getConfig, parseSprintIds, type Env } from './config'
 import { upsertIssue, deleteIssue, withToken } from './sheetWriter'
 import { postChatNotification } from './chat'
+import { fetchMyselfAccountId, addWatcher } from './jira'
 import type { SyncCoordinator } from './syncCoordinator'
 import { JiraWebhookPayloadSchema, WebhookQuerySchema, SyncQuerySchema, type JiraWebhookPayload } from './schema'
 import { inngest } from './inngest/client'
@@ -105,6 +106,7 @@ function handleWebhook(
             // sheet, regardless of whether the webhook that added it said created or updated.
             await postChatNotification(env, { ...payload, webhookEvent: 'jira:issue_created' })
           }
+          await watchIfAssignedToMe(env, issue)
         },
       )
     case 'jira:issue_deleted':
@@ -116,6 +118,23 @@ function handleWebhook(
     default:
       console.log('Ignored: event ' + payload.webhookEvent)
       return null
+  }
+}
+
+// Watches issues assigned to the account the Jira API token belongs to: /myself resolves our
+// accountId, and when it matches the issue's assignee we POST ourselves as watcher (204 no-op
+// if already watching). Full syncs do the same via SyncCoordinator's drain phase. Best-effort:
+// a watcher failure must never fail the sheet upsert, so callers only log.
+async function watchIfAssignedToMe(env: Env, issue: JiraWebhookPayload['issue']): Promise<void> {
+  const assigneeAccountId = issue.fields.assignee?.accountId
+  if (!assigneeAccountId) return
+  try {
+    const mine = await fetchMyselfAccountId(env.JIRA_SUBDOMAIN, env.JIRA_EMAIL, env.JIRA_API_TOKEN)
+    if (assigneeAccountId !== mine) return
+    await addWatcher(issue.key, mine, env.JIRA_SUBDOMAIN, env.JIRA_EMAIL, env.JIRA_API_TOKEN)
+  } catch (err) {
+    console.error(`Watcher add failed for ${issue.key}: ${err}`)
+    Sentry.captureException(err)
   }
 }
 

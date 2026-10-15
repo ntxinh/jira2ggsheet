@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers'
 import * as Sentry from '@sentry/cloudflare'
 import { getConfig, type Config, type Env } from './config'
-import { searchIssuesPage, fetchSprintName } from './jira'
+import { searchIssuesPage, fetchSprintName, fetchMyselfAccountId, addWatcher } from './jira'
 import { syncSprintPage, withStoredToken, getSheets, sprintSheetName, renameSprintTabs } from './sheetWriter'
 import { postChatNotification } from './chat'
 
@@ -9,6 +9,9 @@ interface SyncState {
   sprintId: string // the sprint currently being synced
   sprintQueue: string[] // remaining sprints to sync after the current one
   nextPageToken?: string
+  watchQueue?: string[] // issue keys whose assignee is our account; drained after all sprints sync
+  watchAccountId?: string // accountId of the Jira API token's owner, resolved once per sync
+  drainingWatchers?: boolean // page sync done; ticks now drain watchQueue at WATCH_BATCH_SIZE/tick
   pagesDone: number
   rowsWritten: number
   startedAt: number
@@ -40,6 +43,9 @@ const MAX_BACKOFF_MS = 5 * 60 * 1000
 // If no page has completed for this long, the cron kick treats the in-progress marker as dead
 // (e.g. the alarm chain crashed between storage.put and setAlarm) and restarts from page 0.
 const STALE_MS = 4 * 60 * 1000
+// Watcher drain phase: POST /watchers has no bulk variant, so to stay inside the Free plan's
+// 50-subrequest budget we POST at most this many per alarm tick (~3s apart) after the page sync.
+const WATCH_BATCH_SIZE = 20
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } })
@@ -112,6 +118,15 @@ export class SyncCoordinator extends DurableObject<Env> {
     if (!state) return
 
     try {
+      if (state.drainingWatchers) {
+        if (await this.drainWatchers(state)) {
+          await this.ctx.storage.delete(STATE_KEY)
+        } else {
+          await this.ctx.storage.put<SyncState>(STATE_KEY, { ...state, updatedAt: Date.now(), failures: 0 })
+          await this.ctx.storage.setAlarm(Date.now() + PAGE_ALARM_MS)
+        }
+        return
+      }
       const { nextPageToken, rowsWritten, isLast } = await this.processPage(state)
       if (isLast) {
         console.log(
@@ -131,6 +146,20 @@ export class SyncCoordinator extends DurableObject<Env> {
             failures: 0,
           })
           await this.ctx.storage.setAlarm(Date.now() + FIRST_TICK_MS)
+          return
+        }
+        if ((state.watchQueue ?? []).length > 0) {
+          // Page sync done but watcher POSTs remain: keep the state, switch to drain mode.
+          await this.ctx.storage.put<SyncState>(STATE_KEY, {
+            ...state,
+            nextPageToken: undefined,
+            drainingWatchers: true,
+            pagesDone: state.pagesDone + 1,
+            rowsWritten: state.rowsWritten + rowsWritten,
+            updatedAt: Date.now(),
+            failures: 0,
+          })
+          await this.ctx.storage.setAlarm(Date.now() + PAGE_ALARM_MS)
           return
         }
         await this.ctx.storage.delete(STATE_KEY)
@@ -183,6 +212,33 @@ export class SyncCoordinator extends DurableObject<Env> {
       this.env.GOOGLE_PRIVATE_KEY,
       (token) => syncSprintPage(this.env.SPREADSHEET_ID, page.issues, token, this.config),
     )
+    // Collect keys assigned to the API token's own account — they're watched in the drain
+    // phase after all sprints finish (no bulk watcher endpoint; paced to stay inside the
+    // Free plan's subrequest budget). Best-effort: a /myself failure skips collection for
+    // this page, never fails the tick.
+    if (!state.watchAccountId && page.issues.some((i) => i.fields.assignee)) {
+      try {
+        state.watchAccountId = await fetchMyselfAccountId(
+          this.config.JIRA_SUBDOMAIN,
+          this.env.JIRA_EMAIL,
+          this.env.JIRA_API_TOKEN,
+        )
+      } catch (err) {
+        console.error(`Watcher self-lookup failed: ${err}`)
+        try {
+          Sentry.captureException(err)
+        } catch {
+          // telemetry must never kill a tick
+        }
+      }
+    }
+    if (state.watchAccountId) {
+      state.watchQueue = state.watchQueue ?? []
+      for (const issue of page.issues) {
+        const assignee = (issue.fields.assignee as { accountId?: string } | undefined)?.accountId
+        if (assignee === state.watchAccountId) state.watchQueue.push(issue.key)
+      }
+    }
     // Same sheet-as-source-of-truth rule as webhooks: a full sync can also surface issues that
     // were never written to the sheet (missed webhook, or created before the worker existed). If
     // such a genuinely-new issue is assigned to NOTIFY_ASSIGNEE, ping the chat the same way. Fire-and-forget,
@@ -194,6 +250,30 @@ export class SyncCoordinator extends DurableObject<Env> {
       }
     }
     return { nextPageToken: page.nextPageToken, rowsWritten: result.rowsWritten, isLast: page.isLast }
+  }
+
+  // Drain phase after the last sprint page: POST watchers for queued keys, at most
+  // WATCH_BATCH_SIZE per tick. Per-key errors are logged and skipped — the POST is
+  // idempotent and the next sync recollects, so a dead key must not stall the queue.
+  // Returns true when the queue is empty (sync fully done).
+  private async drainWatchers(state: SyncState): Promise<boolean> {
+    const queue = state.watchQueue ?? []
+    if (queue.length === 0) return true
+    if (!state.watchAccountId) return true // unreachable in practice: the queue only fills once resolved
+    const batch = queue.splice(0, WATCH_BATCH_SIZE)
+    for (const key of batch) {
+      try {
+        await addWatcher(key, state.watchAccountId, this.config.JIRA_SUBDOMAIN, this.env.JIRA_EMAIL, this.env.JIRA_API_TOKEN)
+      } catch (err) {
+        console.error(`Watcher add failed for ${key}: ${err}`)
+        try {
+          Sentry.captureException(err)
+        } catch {
+          // telemetry must never kill a tick
+        }
+      }
+    }
+    return queue.length === 0
   }
 
   // Best-effort tab-name sweep: compares every sprint tab against Jira's current sprint

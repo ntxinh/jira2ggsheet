@@ -32,6 +32,8 @@ CI (`.github/workflows/deploy.yml`): `npm ci` → `typecheck` → `test` on push
 3. The new cursor is persisted in DO storage (SQLite); more pages → `setAlarm(+3s)`, done → state cleared.
 4. A failed tick keeps the cursor and retries with exponential backoff (5s·2^n, cap 5 min); a stale in-progress marker (>4 min) is restarted by the next cron kick. `GET /sync/status` polls progress.
 
+- **Self-watch**: webhooks (`watchIfAssignedToMe`, `src/workers/index.ts`) and full syncs add the Jira API token's owner as watcher on issues assigned to them — `/myself` resolves the owner's `accountId`, then `POST /issue/{key}/watchers` (idempotent, no bulk endpoint). Syncs collect keys during page ticks and drain them after the last sprint at `WATCH_BATCH_SIZE` (20) per tick to stay under the Free plan's subrequest budget.
+
 This exists because of the Free plan's **10ms CPU per invocation** limit — one page per tick keeps JS work minimal, and the Google OAuth token is cached in DO storage (`withStoredToken`) so the RS256 JWT is signed ≤1/hr, not per tick.
 
 ## Gotchas

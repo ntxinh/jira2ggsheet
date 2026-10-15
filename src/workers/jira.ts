@@ -2,6 +2,10 @@ import type { JiraIssue } from './fieldExtractor'
 
 const PAGE_SIZE = 100
 
+function basicAuth(email: string, apiToken: string): string {
+  return 'Basic ' + btoa(`${email}:${apiToken}`)
+}
+
 export function jiraBaseUrl(subdomain: string): string {
   return `https://${subdomain}.atlassian.net`
 }
@@ -26,10 +30,9 @@ export async function searchIssuesPage(
   fields = '*all',
 ): Promise<JiraPage> {
   const base = `${jiraBaseUrl(subdomain)}/rest/api/3/search/jql`
-  const auth = 'Basic ' + btoa(`${email}:${apiToken}`)
   let url = `${base}?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields)}&maxResults=${PAGE_SIZE}`
   if (nextPageToken) url += `&nextPageToken=${encodeURIComponent(nextPageToken)}`
-  const res = await fetch(url, { headers: { Authorization: auth } })
+  const res = await fetch(url, { headers: { Authorization: basicAuth(email, apiToken) } })
   if (!res.ok) throw new Error(`Jira search ${res.status}: ${await res.text()}`)
   const data = (await res.json()) as { issues?: JiraIssue[]; nextPageToken?: string; isLast?: boolean }
   return {
@@ -48,9 +51,42 @@ export async function fetchSprintName(
   apiToken: string,
 ): Promise<string> {
   const url = `${jiraBaseUrl(subdomain)}/rest/agile/1.0/sprint/${sprintId}`
-  const auth = 'Basic ' + btoa(`${email}:${apiToken}`)
-  const res = await fetch(url, { headers: { Authorization: auth } })
+  const res = await fetch(url, { headers: { Authorization: basicAuth(email, apiToken) } })
   if (!res.ok) throw new Error(`Jira sprint ${res.status}: ${await res.text()}`)
   const data = (await res.json()) as { name?: string }
   return String(data.name ?? '')
+}
+
+// /myself resolves the account the API token belongs to — the watcher we add when a ticket
+// gets assigned to that account.
+export async function fetchMyselfAccountId(
+  subdomain: string,
+  email: string,
+  apiToken: string,
+): Promise<string> {
+  const url = `${jiraBaseUrl(subdomain)}/rest/api/3/myself`
+  const res = await fetch(url, { headers: { Authorization: basicAuth(email, apiToken) } })
+  if (!res.ok) throw new Error(`Jira myself ${res.status}: ${await res.text()}`)
+  const data = (await res.json()) as { accountId?: string }
+  if (!data.accountId) throw new Error('Jira myself returned no accountId')
+  return data.accountId
+}
+
+// Body is the raw accountId string (Jira API v3 quirk, not JSON). Adding an existing watcher
+// is a 204 no-op, so callers don't need to check the watcher list first. Watching oneself
+// only needs Browse permission.
+export async function addWatcher(
+  issueKey: string,
+  accountId: string,
+  subdomain: string,
+  email: string,
+  apiToken: string,
+): Promise<void> {
+  const url = `${jiraBaseUrl(subdomain)}/rest/api/3/issue/${issueKey}/watchers`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: basicAuth(email, apiToken), 'Content-Type': 'application/json' },
+    body: JSON.stringify(accountId),
+  })
+  if (!res.ok) throw new Error(`Jira add watcher ${issueKey} ${res.status}: ${await res.text()}`)
 }

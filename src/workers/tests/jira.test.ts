@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { searchIssuesPage, fetchSprintName } from '../jira'
+import { searchIssuesPage, fetchSprintName, fetchMyselfAccountId, addWatcher } from '../jira'
 import type { JiraIssue } from '../fieldExtractor'
 
 const PAGE_SIZE = 100
@@ -98,5 +98,52 @@ describe('fetchSprintName', () => {
   it('throws on non-OK response (e.g. sprint deleted → 404)', async () => {
     vi.stubGlobal('fetch', vi.fn(() => new Response('gone', { status: 404 })))
     await expect(fetchSprintName('123', 'acme', 'a', 'b')).rejects.toThrow('Jira sprint 404')
+  })
+})
+
+describe('fetchMyselfAccountId', () => {
+  it('returns the accountId of the token owner', async () => {
+    const calls: { url: string; headers: Record<string, string> }[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, headers: (init?.headers ?? {}) as Record<string, string> })
+      return new Response(JSON.stringify({ accountId: 'acct-123' }))
+    }))
+
+    await expect(fetchMyselfAccountId('acme', 'me@x.com', 'tok')).resolves.toBe('acct-123')
+    expect(calls[0].url).toBe('https://acme.atlassian.net/rest/api/3/myself')
+    expect(calls[0].headers.Authorization).toBe('Basic ' + btoa('me@x.com:tok'))
+  })
+
+  it('throws when the response has no accountId', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ displayName: 'Me' }))))
+    await expect(fetchMyselfAccountId('acme', 'me@x.com', 'tok')).rejects.toThrow('no accountId')
+  })
+
+  it('throws on non-OK response', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('denied', { status: 401 })))
+    await expect(fetchMyselfAccountId('acme', 'me@x.com', 'tok')).rejects.toThrow('Jira myself 401')
+  })
+})
+
+describe('addWatcher', () => {
+  it('POSTs the raw accountId string to the watchers endpoint', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init })
+      return new Response(null, { status: 204 })
+    }))
+
+    await addWatcher('ABC-1', 'acct-123', 'acme', 'me@x.com', 'tok')
+
+    expect(calls.length).toBe(1)
+    expect(calls[0].url).toBe('https://acme.atlassian.net/rest/api/3/issue/ABC-1/watchers')
+    expect(calls[0].init?.method).toBe('POST')
+    expect(calls[0].init?.body).toBe('"acct-123"')
+    expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe('Basic ' + btoa('me@x.com:tok'))
+  })
+
+  it('throws on non-OK response', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('forbidden', { status: 403 })))
+    await expect(addWatcher('ABC-1', 'acct-123', 'acme', 'me@x.com', 'tok')).rejects.toThrow('Jira add watcher ABC-1 403')
   })
 })

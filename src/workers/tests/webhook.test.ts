@@ -5,6 +5,8 @@ import type { KickResult } from '../syncCoordinator'
 import { captureException } from '@sentry/cloudflare'
 import { isWithinTicketWindow } from '../chat'
 import { upsertIssue } from '../sheetWriter'
+import { fetchMyselfAccountId, addWatcher } from '../jira'
+import type * as JiraApi from '../jira'
 
 vi.mock('../sheetWriter', () => ({
   upsertIssue: vi.fn().mockResolvedValue(undefined),
@@ -12,6 +14,10 @@ vi.mock('../sheetWriter', () => ({
   deleteIssue: vi.fn(),
   getOrCreateSprintSheet: vi.fn(),
 }))
+vi.mock('../jira', async (importOriginal) => {
+  const actual = await importOriginal<typeof JiraApi>()
+  return { ...actual, fetchMyselfAccountId: vi.fn(), addWatcher: vi.fn() }
+})
 vi.mock('@sentry/cloudflare', () => ({
   withSentry: (_options: unknown, handler: unknown) => handler,
   captureException: vi.fn(),
@@ -466,5 +472,89 @@ describe('GET /sync/status — sync progress', () => {
     const res = await index.fetch(new Request(new URL('/sync/status', 'http://localhost'), { method: 'GET' }), env)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ running: true, sprintId: '42', pagesDone: 2, rowsWritten: 150, startedAt: 1000, updatedAt: 2000 })
+  })
+})
+
+describe('Jira watcher on self-assignment', () => {
+  const myselfMock = vi.mocked(fetchMyselfAccountId)
+  const addWatcherMock = vi.mocked(addWatcher)
+
+  function webhookRequest(body: unknown): Parameters<typeof index.fetch>[0] {
+    return new Request(new URL('/?token=test-token', 'http://localhost'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }) as Parameters<typeof index.fetch>[0]
+  }
+
+  // Same waitUntil capture as the notification tests: the handler's work (upsert + watcher)
+  // runs in the background promise, so await it before asserting side effects.
+  function captureWaitUntil(): { ctx: ExecutionContext; pending: Promise<unknown>[] } {
+    const pending: Promise<unknown>[] = []
+    const ctx = {
+      waitUntil: (p: Promise<unknown>) => { pending.push(p) },
+      passThroughOnException: () => {},
+    } as unknown as ExecutionContext
+    return { ctx, pending }
+  }
+
+  const payload = (accountId?: string) => ({
+    webhookEvent: 'jira:issue_updated',
+    issue: {
+      key: 'TEST-1',
+      fields: {
+        project: { key: 'TEST' },
+        assignee: accountId ? { displayName: 'Binh Ho', accountId } : undefined,
+      },
+    },
+  })
+
+  beforeEach(() => {
+    myselfMock.mockResolvedValue('acct-mine')
+    addWatcherMock.mockResolvedValue(undefined)
+  })
+
+  it('adds the token owner as watcher when the issue is assigned to them', async () => {
+    const { ctx, pending } = captureWaitUntil()
+
+    const res = await index.fetch(webhookRequest(payload('acct-mine')), testEnv, ctx)
+    await Promise.all(pending)
+
+    expect(res.status).toBe(200)
+    expect(myselfMock).toHaveBeenCalledWith('acme', 'jira@example.com', 'jira-token')
+    expect(addWatcherMock).toHaveBeenCalledWith('TEST-1', 'acct-mine', 'acme', 'jira@example.com', 'jira-token')
+  })
+
+  it('does not add a watcher when the assignee is someone else', async () => {
+    const { ctx, pending } = captureWaitUntil()
+
+    const res = await index.fetch(webhookRequest(payload('acct-other')), testEnv, ctx)
+    await Promise.all(pending)
+
+    expect(res.status).toBe(200)
+    expect(myselfMock).toHaveBeenCalled()
+    expect(addWatcherMock).not.toHaveBeenCalled()
+  })
+
+  it('skips the /myself call entirely when the issue has no assignee', async () => {
+    const { ctx, pending } = captureWaitUntil()
+
+    const res = await index.fetch(webhookRequest(payload(undefined)), testEnv, ctx)
+    await Promise.all(pending)
+
+    expect(res.status).toBe(200)
+    expect(myselfMock).not.toHaveBeenCalled()
+    expect(addWatcherMock).not.toHaveBeenCalled()
+  })
+
+  it('reports a watcher failure to Sentry without failing the webhook', async () => {
+    addWatcherMock.mockRejectedValueOnce(new Error('watcher denied'))
+    const { ctx, pending } = captureWaitUntil()
+
+    const res = await index.fetch(webhookRequest(payload('acct-mine')), testEnv, ctx)
+    await Promise.all(pending)
+
+    expect(res.status).toBe(200)
+    expect(captureException).toHaveBeenCalledWith(expect.any(Error))
   })
 })
